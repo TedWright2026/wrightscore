@@ -736,15 +736,23 @@ export default function WRightScore() {
           <div style={{ ...card, margin: "6px 12px" }}>
             {/* Sponsor banner — shows if hole is sponsored */}
             {isSponsored && (
-              <div style={{ background: sponsorInfo.sponsorColor, padding:"8px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <span style={{ fontSize:18 }}>{sponsorInfo.icon}</span>
-                  <div>
-                    <div style={{ fontSize:12, fontWeight:800, color:C.white, letterSpacing:0.3 }}>{sponsorInfo.type}</div>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,0.7)" }}>Sponsored by {sponsorInfo.sponsorName}</div>
+              <div style={{ background: sponsorInfo.sponsorColor }}>
+                <div style={{ padding:"8px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:18 }}>{sponsorInfo.icon}</span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:800, color:C.white, letterSpacing:0.3 }}>{sponsorInfo.type}</div>
+                      <div style={{ fontSize:10, color:"rgba(255,255,255,0.7)" }}>Sponsored by {sponsorInfo.sponsorName}</div>
+                    </div>
                   </div>
+                  {sponsorInfo.sponsorLogo && <img src={sponsorInfo.sponsorLogo} alt="sponsor" style={{ height:28, objectFit:"contain", background:"rgba(255,255,255,0.9)", borderRadius:4, padding:"1px 4px" }}/>}
                 </div>
-                {sponsorInfo.sponsorLogo && <img src={sponsorInfo.sponsorLogo} alt="sponsor" style={{ height:28, objectFit:"contain" }}/>}
+                {sponsorInfo.prizeDesc && (
+                  <div style={{ padding:"6px 16px 10px", display:"flex", alignItems:"center", gap:6 }}>
+                    <span style={{ fontSize:14 }}>🏆</span>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.white }}>{sponsorInfo.prizeDesc}</div>
+                  </div>
+                )}
               </div>
             )}
             {/* Hole header */}
