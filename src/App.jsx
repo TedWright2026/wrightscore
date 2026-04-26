@@ -180,8 +180,10 @@ export default function WRightScore() {
 
   // Splash then load live competitions from Supabase
   useEffect(() => {
-    setTimeout(() => setSplashDone(true), 1800);
-    setTimeout(() => loadLiveComps(), 1600);
+    // Start loading data immediately in background
+    loadLiveComps();
+    // Splash finishes at 3.3s (club animation ends) — add small buffer
+    setTimeout(() => setSplashDone(true), 3400);
   }, []);
 
   const loadLiveComps = async () => {
@@ -189,18 +191,18 @@ export default function WRightScore() {
       const comps = await sb.get("competitions", "select=*&status=eq.live&order=name");
       setLiveComps(comps);
       if (comps.length === 1) {
-        // Only one live — load it automatically
         await loadCompetition(comps[0]);
-        setPage("pin");
-      } else {
-        // Multiple or none — go to pin page to show selection
-        setPage("pin");
       }
+      // Don't call setPage here — wait for splashDone
     } catch(e) {
       setLoadError("Could not connect to server");
-      setPage("pin");
     }
   };
+
+  // Once splash is done, go to PIN
+  useEffect(() => {
+    if (splashDone) setPage("pin");
+  }, [splashDone]);
 
   const loadCompetition = async (comp) => {
     try {
