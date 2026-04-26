@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── SUPABASE CONFIG ──────────────────────────────────────────────────────────
-// TODO: Replace with wRight Score Supabase project credentials
-const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-const SUPABASE_KEY = "YOUR_ANON_KEY";
+const SUPABASE_URL = "https://mggtvitmicbzytklmkmm.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1nZ3R2aXRtaWNienl0a2xta21tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMTg3NzAsImV4cCI6MjA5Mjc5NDc3MH0.H4ulHFHJQQ_5wvMLdzBrlqBi89SFCiNxuvLNQ9vX-5A";
 
 const sb = {
   headers: {
@@ -153,12 +152,15 @@ const INITIAL_AUCTION_ITEMS = [
 export default function WRightScore() {
   const [page,       setPage]       = useState("splash");
   const [team,       setTeam]       = useState(null);
+  const [competition,setCompetition]= useState(null);  // active competition from Supabase
+  const [courseData, setCourseData] = useState(null);  // course holes from Supabase
+  const [liveComps,  setLiveComps]  = useState([]);    // all live competitions
   const [pinInput,   setPinInput]   = useState("");
   const [pinError,   setPinError]   = useState("");
-  const [scores,     setScores]     = useState(Array(18).fill(null));       // gross per hole
-  const [drives,     setDrives]     = useState(Array(18).fill(null));       // player index 0-3
-  const [currentH,  setCurrentH]   = useState(0);  // 0-indexed current hole
-  const [allTeams,   setAllTeams]   = useState(DEMO_TEAMS);
+  const [scores,     setScores]     = useState(Array(18).fill(null));
+  const [drives,     setDrives]     = useState(Array(18).fill(null));
+  const [currentH,  setCurrentH]   = useState(0);
+  const [allTeams,   setAllTeams]   = useState([]);
   const [syncStatus, setSyncStatus] = useState("offline");
   const [splashDone, setSplashDone] = useState(false);
   const [sponsorPopup, setSponsorPopup] = useState(null);
@@ -166,20 +168,69 @@ export default function WRightScore() {
   const [lbTab,      setLbTab]      = useState("teams");
   const [prizeWinners, setPrizeWinners] = useState({});
   const [assigningPrize, setAssigningPrize] = useState(null);
-  const [auctionItems, setAuctionItems] = useState(INITIAL_AUCTION_ITEMS);
-  // bids: { itemId: [ { teamName, amount, anonymous: true } ] }
+  const [auctionItems, setAuctionItems] = useState([]);
   const [bids,       setBids]       = useState({});
-  const [bidItem,    setBidItem]    = useState(null);  // item being bid on
+  const [bidItem,    setBidItem]    = useState(null);
   const [bidAmount,  setBidAmount]  = useState("");
   const [bidError,   setBidError]   = useState("");
   const [bidSuccess, setBidSuccess] = useState(null);
+  const [loadError,  setLoadError]  = useState(null);
   const saveTimer = useRef({});
 
-  // Splash sequence
+  // Splash then load live competitions from Supabase
   useEffect(() => {
     setTimeout(() => setSplashDone(true), 3200);
-    setTimeout(() => setPage("pin"), 3500);
+    setTimeout(() => loadLiveComps(), 3000);
   }, []);
+
+  const loadLiveComps = async () => {
+    try {
+      const comps = await sb.get("competitions", "select=*&status=eq.live&order=name");
+      setLiveComps(comps);
+      if (comps.length === 1) {
+        // Only one live — load it automatically
+        await loadCompetition(comps[0]);
+        setTimeout(() => setPage("pin"), 3500);
+      } else {
+        // Multiple or none — go to pin page to show selection
+        setTimeout(() => setPage("pin"), 3500);
+      }
+    } catch(e) {
+      setLoadError("Could not connect to server");
+      setTimeout(() => setPage("pin"), 3500);
+    }
+  };
+
+  const loadCompetition = async (comp) => {
+    try {
+      setCompetition(comp);
+      // Load course
+      const compCourses = await sb.get("competition_courses", `select=*,courses(*)&competition_id=eq.${comp.id}&day=eq.1`);
+      if (compCourses.length > 0 && compCourses[0].courses) {
+        const course = compCourses[0].courses;
+        const holes = Array.isArray(course.holes) ? course.holes : JSON.parse(course.holes);
+        setCourseData({ ...course, holes });
+      }
+      // Load teams with players
+      const teams = await sb.get("teams", `select=*&competition_id=eq.${comp.id}&order=name`);
+      const players = await sb.get("players", `select=*&competition_id=eq.${comp.id}&order=slot`);
+      const teamsWithPlayers = teams.map(t => ({
+        ...t,
+        players: players.filter(p => p.team_id === t.id).map(p => ({
+          name: p.name, handicap: p.handicap, company: p.company
+        }))
+      }));
+      setAllTeams(teamsWithPlayers);
+      // Load auction items
+      const items = await sb.get("auction_items", `select=*&competition_id=eq.${comp.id}&order=sort_order`);
+      setAuctionItems(items.map(i => ({ ...i, start_bid: i.start_bid || 0 })));
+    } catch(e) {
+      setLoadError("Failed to load competition data");
+    }
+  };
+
+  // Active course — fall back to Castle GC if not loaded yet
+  const activeCourse = courseData || CASTLE_GC;
 
   // Allowance for current team
   const allowance = team ? calcScrambleAllowance(team.players) : 0;
@@ -198,10 +249,10 @@ export default function WRightScore() {
 
   // Gross total and net
   const grossTotal = scores.reduce((sum, s) => sum + (s || 0), 0);
-  const parTotal = CASTLE_GC.holes.reduce((sum, h, i) => scores[i] !== null ? sum + h.par : sum, 0);
+  const parTotal = activeCourse.holes.reduce((sum, h, i) => scores[i] !== null ? sum + h.par : sum, 0);
   const grossVsPar = holesScored > 0 ? grossTotal - parTotal : 0;
   // Net: apply allowance distributed by SI — strokes come off holes with lowest SI first
-  const netScoreByHole = CASTLE_GC.holes.map((h, i) => {
+  const netScoreByHole = activeCourse.holes.map((h, i) => {
     if (scores[i] === null) return null;
     const s = strokesOnHole(allowance, h.si);
     return scores[i] - s;
@@ -215,10 +266,10 @@ export default function WRightScore() {
     const tScores = t.id === team?.id ? scores : Array(18).fill(null);
     const tHoles = tScores.filter(s => s !== null).length;
     const tGross = tScores.reduce((sum, s) => sum + (s || 0), 0);
-    const tPar = CASTLE_GC.holes.reduce((sum, h, i) => tScores[i] !== null ? sum + h.par : sum, 0);
+    const tPar = activeCourse.holes.reduce((sum, h, i) => tScores[i] !== null ? sum + h.par : sum, 0);
     const tGrossVsPar = tHoles > 0 ? tGross - tPar : null;
     // Net with SI-distributed strokes
-    const tNet = CASTLE_GC.holes.reduce((sum, h, i) => {
+    const tNet = activeCourse.holes.reduce((sum, h, i) => {
       if (tScores[i] === null) return sum;
       return sum + tScores[i] - strokesOnHole(tAllowance, h.si);
     }, 0);
@@ -227,13 +278,20 @@ export default function WRightScore() {
   }).filter(t => t.holes > 0).sort((a, b) => (a.netVsPar ?? 999) - (b.netVsPar ?? 999));
 
   // PIN sign in
-  const handlePin = () => {
-    const found = DEMO_TEAMS.find(t => t.pin === pinInput.trim());
-    if (!found) { setPinError("PIN not recognised — try again"); return; }
-    setTeam(found);
-    setPinError("");
-    setPinInput("");
-    setPage("scoring");
+  const handlePin = async () => {
+    if (!pinInput.trim()) return;
+    // If multiple live comps and none selected yet, ignore
+    if (!competition && liveComps.length !== 1) return;
+    try {
+      const found = allTeams.find(t => t.pin === pinInput.trim());
+      if (!found) { setPinError("PIN not recognised — try again"); return; }
+      setTeam(found);
+      setPinError("");
+      setPinInput("");
+      setPage("scoring");
+    } catch(e) {
+      setPinError("Error connecting — try again");
+    }
   };
 
   // Set score for hole — triggers sponsor popup if next hole is sponsored
@@ -329,52 +387,82 @@ export default function WRightScore() {
     <div style={{ width: "100%", height: "100vh", background: C.navyDk, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Montserrat',Arial,sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Montserrat:wght@400;600&display=swap');`}</style>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, width: "100%", maxWidth: 340, padding: "0 24px" }}>
+
         {/* Logo */}
-        <div style={{ marginBottom: 40, textAlign: "center" }}>
+        <div style={{ marginBottom: 32, textAlign: "center" }}>
           <div style={{ fontFamily: "'Playfair Display',Georgia,serif", fontWeight: 700, fontSize: 32, color: C.white }}>
             wRight<span style={{ color: C.red }}>Score</span>
           </div>
-          <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>Castle Golf Club · Scramble</div>
-        </div>
-
-        {/* PIN display */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 32 }}>
-          {[0,1,2,3].map(i => (
-            <div key={i} style={{ width: 56, height: 64, borderRadius: 12, background: pinInput[i] ? C.navy : "rgba(255,255,255,0.08)", border: `2px solid ${pinInput[i] ? C.red : "rgba(255,255,255,0.15)"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 900, color: C.white, transition: "all 0.15s" }}>
-              {pinInput[i] ? "•" : ""}
+          {competition ? (
+            <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginTop: 6 }}>
+              {competition.name}
             </div>
-          ))}
+          ) : liveComps.length === 0 ? (
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 8 }}>
+              {loadError || "No live competitions right now"}
+            </div>
+          ) : null}
         </div>
 
-        {/* Numpad */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, width: "100%" }}>
-          {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k, i) => (
-            <button key={i} onClick={() => {
-              if (!k) return;
-              if (k === "⌫") { setPinInput(p => p.slice(0,-1)); setPinError(""); return; }
-              if (pinInput.length < 4) setPinInput(p => p + k);
-            }}
-            style={{ height: 60, borderRadius: 12, border: "none", background: k ? "rgba(255,255,255,0.1)" : "transparent", color: C.white, fontSize: k === "⌫" ? 20 : 24, fontWeight: 700, cursor: k ? "pointer" : "default", fontFamily: "inherit", transition: "background 0.1s" }}>
-              {k}
+        {/* ── COMPETITION SELECTOR — only when multiple live ── */}
+        {!competition && liveComps.length > 1 && (
+          <div style={{ width: "100%", marginBottom: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, textAlign: "center" }}>
+              Select your event
+            </div>
+            {liveComps.map(c => (
+              <button key={c.id} onClick={async () => { await loadCompetition(c); }}
+                style={{ width: "100%", padding: "14px 16px", marginBottom: 8, borderRadius: 12, border: `2px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.07)", color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                <div>{c.name}</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 3, fontWeight: 400 }}>{c.location || "Scramble"}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── PIN entry — only show when competition is selected or only one live ── */}
+        {(competition || liveComps.length === 1) && (
+          <>
+            {/* PIN display */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 32 }}>
+              {[0,1,2,3].map(i => (
+                <div key={i} style={{ width: 56, height: 64, borderRadius: 12, background: pinInput[i] ? C.navy : "rgba(255,255,255,0.08)", border: `2px solid ${pinInput[i] ? C.red : "rgba(255,255,255,0.15)"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 900, color: C.white, transition: "all 0.15s" }}>
+                  {pinInput[i] ? "•" : ""}
+                </div>
+              ))}
+            </div>
+
+            {/* Numpad */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, width: "100%" }}>
+              {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k, i) => (
+                <button key={i} onClick={() => {
+                  if (!k) return;
+                  if (k === "⌫") { setPinInput(p => p.slice(0,-1)); setPinError(""); return; }
+                  if (pinInput.length < 4) setPinInput(p => p + k);
+                }}
+                style={{ height: 60, borderRadius: 12, border: "none", background: k ? "rgba(255,255,255,0.1)" : "transparent", color: C.white, fontSize: k === "⌫" ? 20 : 24, fontWeight: 700, cursor: k ? "pointer" : "default", fontFamily: "inherit", transition: "background 0.1s" }}>
+                  {k}
+                </button>
+              ))}
+            </div>
+
+            {pinError && <div style={{ color: C.red, fontSize: 13, marginTop: 16, textAlign: "center" }}>{pinError}</div>}
+
+            <button onClick={handlePin} disabled={pinInput.length !== 4}
+              style={{ marginTop: 20, width: "100%", padding: "16px", borderRadius: 14, border: "none", background: pinInput.length === 4 ? C.red : "rgba(255,255,255,0.1)", color: C.white, fontSize: 16, fontWeight: 700, cursor: pinInput.length === 4 ? "pointer" : "not-allowed", fontFamily: "inherit", transition: "background 0.2s" }}>
+              Enter →
             </button>
-          ))}
-        </div>
-
-        {pinError && <div style={{ color: C.red, fontSize: 13, marginTop: 16, textAlign: "center" }}>{pinError}</div>}
-
-        <button onClick={handlePin} disabled={pinInput.length !== 4}
-          style={{ marginTop: 20, width: "100%", padding: "16px", borderRadius: 14, border: "none", background: pinInput.length === 4 ? C.red : "rgba(255,255,255,0.1)", color: C.white, fontSize: 16, fontWeight: 700, cursor: pinInput.length === 4 ? "pointer" : "not-allowed", fontFamily: "inherit", transition: "background 0.2s" }}>
-          Enter →
-        </button>
+          </>
+        )}
 
         {/* Leaderboard & Auction buttons */}
-        <div style={{ display: "flex", gap: 10, marginTop: 16, width: "100%" }}>
+        <div style={{ display: "flex", gap: 10, marginTop: 20, width: "100%" }}>
           <button onClick={() => { setLbTab("teams"); setPage("leaderboard"); }}
-            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(255,255,255,0.2)`, background: "rgba(255,255,255,0.07)", color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>
+            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(255,255,255,0.2)`, background: "rgba(255,255,255,0.07)", color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             🏆 Leaderboard
           </button>
           <button onClick={() => { setLbTab("auction"); setPage("leaderboard"); }}
-            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(232,66,42,0.4)`, background: "rgba(232,66,42,0.12)", color: C.red, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>
+            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(232,66,42,0.4)`, background: "rgba(232,66,42,0.12)", color: C.red, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             ❤️ Auction
           </button>
         </div>
@@ -384,7 +472,7 @@ export default function WRightScore() {
 
   // ── SCORING ───────────────────────────────────────────────────────────────
   if (page === "scoring" && team) {
-    const hole = CASTLE_GC.holes[currentH];
+    const hole = activeCourse.holes[currentH];
     const strokes = strokesOnHole(allowance, hole.si);
     const netPar = hole.par + strokes;
     const hScore = scores[currentH];
@@ -426,7 +514,7 @@ export default function WRightScore() {
                   {SPONSORED_HOLES[sponsorPopup].type}
                 </div>
                 <div style={{ fontSize:14, color:C.muted, marginTop:4 }}>
-                  Hole {sponsorPopup + 1} — {CASTLE_GC.holes[sponsorPopup].par === 3 ? "Par 3" : CASTLE_GC.holes[sponsorPopup].par === 5 ? "Par 5" : "Par 4"}
+                  Hole {sponsorPopup + 1} — {activeCourse.holes[sponsorPopup].par === 3 ? "Par 3" : activeCourse.holes[sponsorPopup].par === 5 ? "Par 5" : "Par 4"}
                 </div>
               </div>
               {/* Prize */}
@@ -485,7 +573,7 @@ export default function WRightScore() {
 
           {/* Hole navigation */}
           <div style={{ display: "flex", gap: 6, padding: "10px 12px 6px", overflowX: "auto" }}>
-            {CASTLE_GC.holes.map((h, i) => {
+            {activeCourse.holes.map((h, i) => {
               const s = scores[i];
               const done = s !== null;
               const vp = done ? s - h.par : null;
@@ -687,7 +775,7 @@ export default function WRightScore() {
                 <thead>
                   <tr style={{ background: C.bg }}>
                     <th style={{ padding: "6px 8px", textAlign: "left", color: C.muted, fontWeight: 700, fontSize: 10 }}>HOLE</th>
-                    {CASTLE_GC.holes.map(h => (
+                    {activeCourse.holes.map(h => (
                       <th key={h.h} style={{ padding: "6px 4px", textAlign: "center", color: h.h === hole.h ? C.navy : C.muted, fontWeight: h.h === hole.h ? 900 : 600, fontSize: 10, minWidth: 24 }}>{h.h}</th>
                     ))}
                     <th style={{ padding: "6px 8px", textAlign: "center", color: C.muted, fontWeight: 700, fontSize: 10 }}>TOT</th>
@@ -696,14 +784,14 @@ export default function WRightScore() {
                 <tbody>
                   <tr>
                     <td style={{ padding: "4px 8px", color: C.muted, fontSize: 10, fontWeight: 700 }}>PAR</td>
-                    {CASTLE_GC.holes.map(h => (
+                    {activeCourse.holes.map(h => (
                       <td key={h.h} style={{ padding: "4px 4px", textAlign: "center", color: C.muted, fontSize: 11 }}>{h.par}</td>
                     ))}
                     <td style={{ padding: "4px 8px", textAlign: "center", color: C.muted, fontWeight: 700, fontSize: 11 }}>70</td>
                   </tr>
                   <tr style={{ background: C.bg }}>
                     <td style={{ padding: "6px 8px", color: C.navy, fontSize: 10, fontWeight: 700 }}>SCORE</td>
-                    {CASTLE_GC.holes.map((h, i) => {
+                    {activeCourse.holes.map((h, i) => {
                       const s = scores[i];
                       const vp = s !== null ? s - h.par : null;
                       // PGA scorecard formatting:
@@ -864,7 +952,7 @@ export default function WRightScore() {
         {/* ── PRIZES TAB ── */}
         {lbTab === "prizes" && Object.entries(SPONSORED_HOLES).map(([holeIdx, sponsor]) => {
           const idx = parseInt(holeIdx);
-          const hole = CASTLE_GC.holes[idx];
+          const hole = activeCourse.holes[idx];
           const photo = photos[idx];
           const winner = prizeWinners[idx];
           return (
