@@ -225,6 +225,14 @@ export default function WRightScore() {
       // Load auction items
       const items = await sb.get("auction_items", `select=*&competition_id=eq.${comp.id}&order=sort_order`);
       setAuctionItems(items.map(i => ({ ...i, start_bid: i.start_bid || 0 })));
+      // Load existing bids and build into local bids state
+      const existingBids = await sb.get("auction_bids", `select=*&competition_id=eq.${comp.id}&order=placed_at.desc`);
+      const bidsMap = {};
+      existingBids.forEach(b => {
+        if (!bidsMap[b.item_id]) bidsMap[b.item_id] = [];
+        bidsMap[b.item_id].push({ teamName: b.team_name, amount: b.amount, time: new Date(b.placed_at).toLocaleTimeString() });
+      });
+      setBids(bidsMap);
       // Load sponsored holes from Supabase — build into same shape as SPONSORED_HOLES
       const sponsors = await sb.get("sponsored_holes", `select=*&competition_id=eq.${comp.id}&order=hole_index`);
       const sponsorMap = {};
@@ -339,17 +347,31 @@ export default function WRightScore() {
     reader.readAsDataURL(file);
   };
   // Handle bid submission
-  const handleBid = () => {
+  const handleBid = async () => {
     if (!bidItem || !team) return;
     const amount = parseFloat(bidAmount);
     const itemBids = bids[bidItem.id] || [];
-    const currentTop = itemBids.length > 0 ? Math.max(...itemBids.map(b => b.amount)) : bidItem.startBid - 1;
+    const currentTop = itemBids.length > 0 ? Math.max(...itemBids.map(b => b.amount)) : (bidItem.start_bid || bidItem.startBid || 0) - 1;
     const minBid = currentTop + 10;
     if (isNaN(amount) || amount < minBid) { setBidError(`Minimum bid is €${minBid}`); return; }
-    setBids(prev => ({ ...prev, [bidItem.id]: [...(prev[bidItem.id] || []), { teamName: team.name, amount, time: new Date().toLocaleTimeString() }] }));
-    setBidSuccess(`Bid of €${amount} placed! ❤️`);
-    setBidAmount(""); setBidError("");
-    setTimeout(() => { setBidItem(null); setBidSuccess(null); }, 2500);
+    try {
+      // Save to Supabase
+      await sb.upsert("auction_bids", [{
+        item_id: bidItem.id,
+        competition_id: competition?.id,
+        team_id: team.id,
+        team_name: team.name,
+        amount: amount,
+        placed_at: new Date().toISOString(),
+      }]);
+      // Update local state so UI refreshes immediately
+      setBids(prev => ({ ...prev, [bidItem.id]: [...(prev[bidItem.id] || []), { teamName: team.name, amount, time: new Date().toLocaleTimeString() }] }));
+      setBidSuccess(`Bid of €${amount} placed! ❤️`);
+      setBidAmount(""); setBidError("");
+      setTimeout(() => { setBidItem(null); setBidSuccess(null); }, 2500);
+    } catch(e) {
+      setBidError("Failed to save bid — check connection");
+    }
   };
 
   const topBid = (itemId) => {
@@ -468,22 +490,20 @@ export default function WRightScore() {
               style={{ marginTop: 20, width: "100%", padding: "16px", borderRadius: 14, border: "none", background: pinInput.length === 4 ? C.red : "rgba(255,255,255,0.1)", color: C.white, fontSize: 16, fontWeight: 700, cursor: pinInput.length === 4 ? "pointer" : "not-allowed", fontFamily: "inherit", transition: "background 0.2s" }}>
               Enter →
             </button>
+
+            {/* Leaderboard & Auction — always active once competition loaded */}
+            <div style={{ display: "flex", gap: 10, marginTop: 16, width: "100%" }}>
+              <button onClick={() => { setLbTab("teams"); setPage("leaderboard"); }}
+                style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(255,255,255,0.2)`, background: "rgba(255,255,255,0.07)", color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                🏆 Leaderboard
+              </button>
+              <button onClick={() => { setLbTab("auction"); setPage("leaderboard"); }}
+                style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(232,66,42,0.4)`, background: "rgba(232,66,42,0.12)", color: C.red, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                ❤️ Auction
+              </button>
+            </div>
           </>
         )}
-
-        {/* Leaderboard & Auction buttons — greyed out until signed in */}
-        <div style={{ display: "flex", gap: 10, marginTop: 20, width: "100%" }}>
-          <button onClick={() => { setLbTab("teams"); setPage("leaderboard"); }}
-            disabled={!team}
-            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid ${team ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)"}`, background: team ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.03)", color: team ? C.white : "rgba(255,255,255,0.25)", fontSize: 14, fontWeight: 700, cursor: team ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
-            🏆 Leaderboard
-          </button>
-          <button onClick={() => { setLbTab("auction"); setPage("leaderboard"); }}
-            disabled={!team}
-            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid ${team ? "rgba(232,66,42,0.4)" : "rgba(255,255,255,0.08)"}`, background: team ? "rgba(232,66,42,0.12)" : "rgba(255,255,255,0.03)", color: team ? C.red : "rgba(255,255,255,0.25)", fontSize: 14, fontWeight: 700, cursor: team ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
-            ❤️ Auction
-          </button>
-        </div>
       </div>
     </div>
   );
