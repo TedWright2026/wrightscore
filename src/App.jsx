@@ -1058,7 +1058,12 @@ export default function WRightScore() {
         </>}
 
         {/* ── PRIZES TAB ── */}
-        {lbTab === "prizes" && Object.entries(SPONSORED_HOLES).map(([holeIdx, sponsor]) => {
+        {lbTab === "prizes" && Object.keys(sponsoredHolesData).length === 0 && (
+          <div style={{ ...card, padding: 40, textAlign: "center", color: C.muted, fontSize: 14 }}>
+            No sponsored holes set up for this competition yet.
+          </div>
+        )}
+        {lbTab === "prizes" && Object.entries(sponsoredHolesData).map(([holeIdx, sponsor]) => {
           const idx = parseInt(holeIdx);
           const hole = activeCourse.holes[idx];
           const photo = photos[idx];
@@ -1139,7 +1144,7 @@ export default function WRightScore() {
           );
         })}
 
-        {lbTab === "prizes" && Object.keys(SPONSORED_HOLES).length === 0 && (
+        {lbTab === "prizes" && Object.keys(sponsoredHolesData).length === 0 && (
           <div style={{ padding:"40px 20px", textAlign:"center", color:C.muted }}>
             <div style={{ fontSize:32, marginBottom:8 }}>🎯</div>
             <div style={{ fontSize:13 }}>No prize holes configured</div>
