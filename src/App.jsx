@@ -703,7 +703,7 @@ export default function WRightScore() {
               const vp = done ? s - h.par : null;
               // Strong contrast colours
               const bg = i === currentH ? "#000000"
-                : done ? (vp < 0 ? "#15803d" : vp === 0 ? "#1e40af" : "#b91c1c")
+                : done ? "#16A34A"
                 : "#e2e8f0";
               const col = i === currentH ? C.white
                 : done ? C.white
@@ -712,7 +712,7 @@ export default function WRightScore() {
                 <button key={i} onClick={() => setCurrentH(i)}
                   style={{ flexShrink: 0, width: 68, height: 68, borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 18, fontWeight: 700, transition: "all 0.15s", position: "relative",
                     background: bg, color: col,
-                    boxShadow: i === currentH ? `0 2px 8px rgba(0,0,0,0.5)` : done ? "0 2px 6px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.08)",
+                    boxShadow: i === currentH ? `0 2px 8px rgba(0,0,0,0.4)` : "none",
                     outline: sponsoredHolesData[i] ? `3px solid ${sponsoredHolesData[i].sponsorColor}` : "none",
                   }}>
                   {h.h}
