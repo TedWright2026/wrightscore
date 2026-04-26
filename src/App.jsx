@@ -176,6 +176,7 @@ export default function WRightScore() {
   const [bidSuccess, setBidSuccess] = useState(null);
   const [loadError,  setLoadError]  = useState(null);
   const [sponsoredHolesData, setSponsoredHolesData] = useState({});
+  const [allScores, setAllScores] = useState([]); // all teams' scores from Supabase
   const saveTimer = useRef({});
 
   // Splash then load live competitions from Supabase
@@ -235,7 +236,9 @@ export default function WRightScore() {
         bidsMap[b.item_id].push({ teamName: b.team_name, amount: b.amount, time: new Date(b.placed_at).toLocaleTimeString() });
       });
       setBids(bidsMap);
-      // Load sponsored holes from Supabase — build into same shape as SPONSORED_HOLES
+      // Load all scores for leaderboard
+      const allSc = await sb.get("scores", `select=*&competition_id=eq.${comp.id}`);
+      setAllScores(allSc);
       const sponsors = await sb.get("sponsored_holes", `select=*&competition_id=eq.${comp.id}&order=hole_index`);
       const sponsorMap = {};
       sponsors.forEach(sh => {
@@ -255,7 +258,14 @@ export default function WRightScore() {
     }
   };
 
-  // Active course — fall back to Castle GC if not loaded yet
+  // Refresh all scores whenever leaderboard is opened
+  useEffect(() => {
+    if (page === "leaderboard" && competition) {
+      sb.get("scores", `select=*&competition_id=eq.${competition.id}`)
+        .then(sc => setAllScores(sc))
+        .catch(() => {});
+    }
+  }, [page]);
   const activeCourse = courseData || CASTLE_GC;
 
   // Allowance for current team
@@ -286,15 +296,21 @@ export default function WRightScore() {
   const netTotal = netScoreByHole.reduce((sum, s) => sum + (s ?? 0), 0);
   const netVsPar = holesScored > 0 ? netTotal - parTotal : 0;
 
-  // Leaderboard data — build from allTeams scores
+  // Leaderboard — use allScores from Supabase, merge current team's live local scores
   const leaderboard = allTeams.map(t => {
     const tAllowance = calcScrambleAllowance(t.players);
-    const tScores = t.id === team?.id ? scores : Array(18).fill(null);
+    // Use local scores for current team (live), Supabase scores for others
+    let tScores = Array(18).fill(null);
+    if (t.id === team?.id) {
+      tScores = scores; // live local state
+    } else {
+      const teamDbScores = allScores.filter(s => s.team_id === t.id);
+      teamDbScores.forEach(s => { if (s.hole_index >= 0 && s.hole_index < 18) tScores[s.hole_index] = s.gross_score; });
+    }
     const tHoles = tScores.filter(s => s !== null).length;
     const tGross = tScores.reduce((sum, s) => sum + (s || 0), 0);
     const tPar = activeCourse.holes.reduce((sum, h, i) => tScores[i] !== null ? sum + h.par : sum, 0);
     const tGrossVsPar = tHoles > 0 ? tGross - tPar : null;
-    // Net with SI-distributed strokes
     const tNet = activeCourse.holes.reduce((sum, h, i) => {
       if (tScores[i] === null) return sum;
       return sum + tScores[i] - strokesOnHole(tAllowance, h.si);
@@ -1010,12 +1026,12 @@ export default function WRightScore() {
               );
             })}
           </div>
-          {DEMO_TEAMS.filter(t => !leaderboard.find(l => l.id === t.id)).length > 0 && (
+          {allTeams.filter(t => !leaderboard.find(l => l.id === t.id)).length > 0 && (
             <div style={card}>
               <div style={{ padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>Yet to Start</div>
               </div>
-              {DEMO_TEAMS.filter(t => !leaderboard.find(l => l.id === t.id)).map(t => (
+              {allTeams.filter(t => !leaderboard.find(l => l.id === t.id)).map(t => (
                 <div key={t.id} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{t.name}</div>
                   <div style={{ fontSize: 11, color: C.muted }}>Allow: -{calcScrambleAllowance(t.players)} shots</div>
