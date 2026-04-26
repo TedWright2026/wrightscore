@@ -206,56 +206,72 @@ export default function WRightScore() {
   }, [splashDone]);
 
   const loadCompetition = async (comp) => {
-    try {
-      setCompetition(comp);
-      // Load course
-      const compCourses = await sb.get("competition_courses", `select=*,courses(*)&competition_id=eq.${comp.id}&day=eq.1`);
-      if (compCourses.length > 0 && compCourses[0].courses) {
-        const course = compCourses[0].courses;
-        const holes = Array.isArray(course.holes) ? course.holes : JSON.parse(course.holes);
-        setCourseData({ ...course, holes });
-      }
-      // Load teams with players
-      const teams = await sb.get("teams", `select=*&competition_id=eq.${comp.id}&order=name`);
-      const players = await sb.get("players", `select=*&competition_id=eq.${comp.id}&order=slot`);
-      const teamsWithPlayers = teams.map(t => ({
-        ...t,
-        players: players.filter(p => p.team_id === t.id).map(p => ({
-          name: p.name, handicap: p.handicap, company: p.company
-        }))
-      }));
-      setAllTeams(teamsWithPlayers);
-      // Load auction items
-      const items = await sb.get("auction_items", `select=*&competition_id=eq.${comp.id}&order=sort_order`);
-      setAuctionItems(items.map(i => ({ ...i, start_bid: i.start_bid || 0 })));
-      // Load existing bids and build into local bids state
-      const existingBids = await sb.get("auction_bids", `select=*&competition_id=eq.${comp.id}&order=placed_at.desc`);
-      const bidsMap = {};
-      existingBids.forEach(b => {
-        if (!bidsMap[b.item_id]) bidsMap[b.item_id] = [];
-        bidsMap[b.item_id].push({ teamName: b.team_name, amount: b.amount, time: new Date(b.placed_at).toLocaleTimeString() });
-      });
-      setBids(bidsMap);
-      // Load all scores for leaderboard
-      const allSc = await sb.get("scores", `select=*&competition_id=eq.${comp.id}`);
-      setAllScores(allSc);
-      const sponsors = await sb.get("sponsored_holes", `select=*&competition_id=eq.${comp.id}&order=hole_index`);
-      const sponsorMap = {};
-      sponsors.forEach(sh => {
-        sponsorMap[sh.hole_index] = {
-          type: sh.type === "nearest_pin" ? "Nearest the Pin" : sh.type === "longest_drive" ? "Longest Drive" : sh.type,
-          icon: sh.type === "nearest_pin" ? "🎯" : sh.type === "longest_drive" ? "🏌️" : "⭐",
-          sponsorName: sh.sponsor_name || "Sponsor",
-          sponsorColor: sh.sponsor_color || "#2563eb",
-          sponsorLogo: sh.sponsor_logo || null,
-          prizeImage: sh.prize_image || null,
-          prizeDesc: sh.prize_desc || "Prize TBC",
-        };
-      });
-      setSponsoredHolesData(sponsorMap);
-    } catch(e) {
-      setLoadError("Failed to load competition data");
-    }
+    setCompetition(comp);
+
+    // Load all in parallel — each section independent so one failure doesn't block others
+    await Promise.allSettled([
+
+      // Course
+      sb.get("competition_courses", `select=*,courses(*)&competition_id=eq.${comp.id}&day=eq.1`)
+        .then(compCourses => {
+          if (compCourses.length > 0 && compCourses[0].courses) {
+            const course = compCourses[0].courses;
+            const holes = Array.isArray(course.holes) ? course.holes : JSON.parse(course.holes);
+            setCourseData({ ...course, holes });
+          }
+        }),
+
+      // Teams + players
+      Promise.all([
+        sb.get("teams", `select=*&competition_id=eq.${comp.id}&order=name`),
+        sb.get("players", `select=*&competition_id=eq.${comp.id}&order=slot`),
+      ]).then(([teams, players]) => {
+        const teamsWithPlayers = teams.map(t => ({
+          ...t,
+          players: players.filter(p => p.team_id === t.id).map(p => ({
+            name: p.name, handicap: p.handicap, company: p.company
+          }))
+        }));
+        setAllTeams(teamsWithPlayers);
+      }),
+
+      // Auction items
+      sb.get("auction_items", `select=*&competition_id=eq.${comp.id}&order=sort_order`)
+        .then(items => setAuctionItems(items.map(i => ({ ...i, start_bid: i.start_bid || 0 })))),
+
+      // Bids
+      sb.get("auction_bids", `select=*&competition_id=eq.${comp.id}&order=placed_at.desc`)
+        .then(existingBids => {
+          const bidsMap = {};
+          existingBids.forEach(b => {
+            if (!bidsMap[b.item_id]) bidsMap[b.item_id] = [];
+            bidsMap[b.item_id].push({ teamName: b.team_name, amount: b.amount, time: new Date(b.placed_at).toLocaleTimeString() });
+          });
+          setBids(bidsMap);
+        }),
+
+      // All scores for leaderboard
+      sb.get("scores", `select=*&competition_id=eq.${comp.id}`)
+        .then(allSc => setAllScores(allSc)),
+
+      // Sponsored holes
+      sb.get("sponsored_holes", `select=*&competition_id=eq.${comp.id}&order=hole_index`)
+        .then(sponsors => {
+          const sponsorMap = {};
+          sponsors.forEach(sh => {
+            sponsorMap[sh.hole_index] = {
+              type: sh.type === "nearest_pin" ? "Nearest the Pin" : sh.type === "longest_drive" ? "Longest Drive" : sh.type,
+              icon: sh.type === "nearest_pin" ? "🎯" : sh.type === "longest_drive" ? "🏌️" : "⭐",
+              sponsorName: sh.sponsor_name || "Sponsor",
+              sponsorColor: sh.sponsor_color || "#2563eb",
+              sponsorLogo: sh.sponsor_logo || null,
+              prizeImage: sh.prize_image || null,
+              prizeDesc: sh.prize_desc || "Prize TBC",
+            };
+          });
+          setSponsoredHolesData(sponsorMap);
+        }),
+    ]);
   };
 
   // Refresh all scores whenever leaderboard is opened
