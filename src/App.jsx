@@ -175,6 +175,7 @@ export default function WRightScore() {
   const [bidError,   setBidError]   = useState("");
   const [bidSuccess, setBidSuccess] = useState(null);
   const [loadError,  setLoadError]  = useState(null);
+  const [sponsoredHolesData, setSponsoredHolesData] = useState({});
   const saveTimer = useRef({});
 
   // Splash then load live competitions from Supabase
@@ -224,6 +225,21 @@ export default function WRightScore() {
       // Load auction items
       const items = await sb.get("auction_items", `select=*&competition_id=eq.${comp.id}&order=sort_order`);
       setAuctionItems(items.map(i => ({ ...i, start_bid: i.start_bid || 0 })));
+      // Load sponsored holes from Supabase — build into same shape as SPONSORED_HOLES
+      const sponsors = await sb.get("sponsored_holes", `select=*&competition_id=eq.${comp.id}&order=hole_index`);
+      const sponsorMap = {};
+      sponsors.forEach(sh => {
+        sponsorMap[sh.hole_index] = {
+          type: sh.type === "nearest_pin" ? "Nearest the Pin" : sh.type === "longest_drive" ? "Longest Drive" : sh.type,
+          icon: sh.type === "nearest_pin" ? "🎯" : sh.type === "longest_drive" ? "🏌️" : "⭐",
+          sponsorName: sh.sponsor_name || "Sponsor",
+          sponsorColor: sh.sponsor_color || "#2563eb",
+          sponsorLogo: sh.sponsor_logo || null,
+          prizeImage: sh.prize_image || null,
+          prizeDesc: sh.prize_desc || "Prize TBC",
+        };
+      });
+      setSponsoredHolesData(sponsorMap);
     } catch(e) {
       setLoadError("Failed to load competition data");
     }
@@ -301,7 +317,7 @@ export default function WRightScore() {
     setScores(next);
     // Check if next hole is sponsored — show popup
     const nextIdx = hIdx + 1;
-    if (nextIdx < 18 && SPONSORED_HOLES[nextIdx] && val !== "") {
+    if (nextIdx < 18 && sponsoredHolesData[nextIdx] && val !== "") {
       setTimeout(() => setSponsorPopup(nextIdx), 600);
     }
   };
@@ -455,14 +471,16 @@ export default function WRightScore() {
           </>
         )}
 
-        {/* Leaderboard & Auction buttons */}
+        {/* Leaderboard & Auction buttons — greyed out until signed in */}
         <div style={{ display: "flex", gap: 10, marginTop: 20, width: "100%" }}>
           <button onClick={() => { setLbTab("teams"); setPage("leaderboard"); }}
-            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(255,255,255,0.2)`, background: "rgba(255,255,255,0.07)", color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            disabled={!team}
+            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid ${team ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)"}`, background: team ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.03)", color: team ? C.white : "rgba(255,255,255,0.25)", fontSize: 14, fontWeight: 700, cursor: team ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
             🏆 Leaderboard
           </button>
           <button onClick={() => { setLbTab("auction"); setPage("leaderboard"); }}
-            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(232,66,42,0.4)`, background: "rgba(232,66,42,0.12)", color: C.red, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            disabled={!team}
+            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid ${team ? "rgba(232,66,42,0.4)" : "rgba(255,255,255,0.08)"}`, background: team ? "rgba(232,66,42,0.12)" : "rgba(255,255,255,0.03)", color: team ? C.red : "rgba(255,255,255,0.25)", fontSize: 14, fontWeight: 700, cursor: team ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
             ❤️ Auction
           </button>
         </div>
@@ -481,7 +499,7 @@ export default function WRightScore() {
     const { label: hLabel, color: hColor } = hVsPar !== null ? vsParLabel(hVsPar) : { label: "–", color: C.muted };
     const { label: gLabel, color: gColor } = vsParLabel(grossVsPar);
 
-    const sponsorInfo = SPONSORED_HOLES[currentH];
+    const sponsorInfo = sponsoredHolesData[currentH];
     const isSponsored = !!sponsorInfo;
 
     return (
@@ -489,29 +507,29 @@ export default function WRightScore() {
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Montserrat:wght@400;600&display=swap');`}</style>
 
         {/* ── SPONSOR POPUP ── */}
-        {sponsorPopup !== null && SPONSORED_HOLES[sponsorPopup] && (
+        {sponsorPopup !== null && sponsoredHolesData[sponsorPopup] && (
           <div style={{ position:"fixed", inset:0, zIndex:200, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
             onClick={() => { setSponsorPopup(null); setCurrentH(sponsorPopup); }}>
             <div style={{ background:C.white, borderRadius:20, overflow:"hidden", width:"100%", maxWidth:340, boxShadow:"0 20px 60px rgba(0,0,0,0.4)" }}
               onClick={e => e.stopPropagation()}>
               {/* Sponsor colour header */}
-              <div style={{ background: SPONSORED_HOLES[sponsorPopup].sponsorColor, padding:"20px 20px 16px", textAlign:"center" }}>
+              <div style={{ background: sponsoredHolesData[sponsorPopup].sponsorColor, padding:"20px 20px 16px", textAlign:"center" }}>
                 <div style={{ fontSize:11, fontWeight:700, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,255,255,0.7)", marginBottom:8 }}>
                   Sponsored by
                 </div>
-                {SPONSORED_HOLES[sponsorPopup].sponsorLogo ? (
-                  <img src={SPONSORED_HOLES[sponsorPopup].sponsorLogo} alt="sponsor" style={{ height:48, objectFit:"contain" }}/>
+                {sponsoredHolesData[sponsorPopup].sponsorLogo ? (
+                  <img src={sponsoredHolesData[sponsorPopup].sponsorLogo} alt="sponsor" style={{ height:48, objectFit:"contain" }}/>
                 ) : (
                   <div style={{ fontSize:24, fontWeight:900, color:C.white, letterSpacing:"-0.5px" }}>
-                    {SPONSORED_HOLES[sponsorPopup].sponsorName}
+                    {sponsoredHolesData[sponsorPopup].sponsorName}
                   </div>
                 )}
               </div>
               {/* Competition type */}
               <div style={{ padding:"16px 20px 12px", textAlign:"center", borderBottom:`1px solid ${C.border}` }}>
-                <div style={{ fontSize:32, marginBottom:6 }}>{SPONSORED_HOLES[sponsorPopup].icon}</div>
+                <div style={{ fontSize:32, marginBottom:6 }}>{sponsoredHolesData[sponsorPopup].icon}</div>
                 <div style={{ fontSize:22, fontWeight:900, color:C.text }}>
-                  {SPONSORED_HOLES[sponsorPopup].type}
+                  {sponsoredHolesData[sponsorPopup].type}
                 </div>
                 <div style={{ fontSize:14, color:C.muted, marginTop:4 }}>
                   Hole {sponsorPopup + 1} — {activeCourse.holes[sponsorPopup].par === 3 ? "Par 3" : activeCourse.holes[sponsorPopup].par === 5 ? "Par 5" : "Par 4"}
@@ -520,20 +538,20 @@ export default function WRightScore() {
               {/* Prize */}
               <div style={{ padding:"14px 20px 8px", textAlign:"center" }}>
                 <div style={{ fontSize:10, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:C.muted, marginBottom:10 }}>The Prize</div>
-                {SPONSORED_HOLES[sponsorPopup].prizeImage ? (
-                  <img src={SPONSORED_HOLES[sponsorPopup].prizeImage} alt="prize" style={{ width:"100%", maxHeight:160, objectFit:"contain", borderRadius:10, marginBottom:10 }}/>
+                {sponsoredHolesData[sponsorPopup].prizeImage ? (
+                  <img src={sponsoredHolesData[sponsorPopup].prizeImage} alt="prize" style={{ width:"100%", maxHeight:160, objectFit:"contain", borderRadius:10, marginBottom:10 }}/>
                 ) : (
                   <div style={{ height:100, background:C.bg, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:10 }}>
                     <div style={{ textAlign:"center" }}>
                       <div style={{ fontSize:32 }}>🏆</div>
-                      <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>{SPONSORED_HOLES[sponsorPopup].prizeDesc}</div>
+                      <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>{sponsoredHolesData[sponsorPopup].prizeDesc}</div>
                     </div>
                   </div>
                 )}
               </div>
               <button
                 onClick={() => { setSponsorPopup(null); setCurrentH(sponsorPopup); }}
-                style={{ width:"100%", padding:"16px", border:"none", background:SPONSORED_HOLES[sponsorPopup].sponsorColor, color:C.white, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit", letterSpacing:0.5 }}>
+                style={{ width:"100%", padding:"16px", border:"none", background:sponsoredHolesData[sponsorPopup].sponsorColor, color:C.white, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit", letterSpacing:0.5 }}>
                 Let's Go — Hole {sponsorPopup + 1} →
               </button>
             </div>
@@ -589,7 +607,7 @@ export default function WRightScore() {
                   style={{ flexShrink: 0, width: 68, height: 68, borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 18, fontWeight: 700, transition: "all 0.15s", position: "relative",
                     background: bg, color: col,
                     boxShadow: i === currentH ? `0 2px 8px rgba(27,75,138,0.5)` : done ? "0 2px 6px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.08)",
-                    outline: SPONSORED_HOLES[i] ? `3px solid ${SPONSORED_HOLES[i].sponsorColor}` : "none",
+                    outline: sponsoredHolesData[i] ? `3px solid ${sponsoredHolesData[i].sponsorColor}` : "none",
                   }}>
                   {h.h}
                   {/* Tick for completed holes */}
@@ -597,9 +615,9 @@ export default function WRightScore() {
                     <span style={{ position:"absolute", bottom:4, right:6, fontSize:10, opacity:0.8 }}>✓</span>
                   )}
                   {/* Sponsor badge */}
-                  {SPONSORED_HOLES[i] && (
-                    <span style={{ position:"absolute", top:-6, right:-6, fontSize:12, background:SPONSORED_HOLES[i].sponsorColor, borderRadius:"50%", width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                      {SPONSORED_HOLES[i].icon === "🎯" ? "📍" : "💨"}
+                  {sponsoredHolesData[i] && (
+                    <span style={{ position:"absolute", top:-6, right:-6, fontSize:12, background:sponsoredHolesData[i].sponsorColor, borderRadius:"50%", width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      {sponsoredHolesData[i].icon === "🎯" ? "📍" : "💨"}
                     </span>
                   )}
                 </button>
