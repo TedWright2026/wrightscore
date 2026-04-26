@@ -180,8 +180,8 @@ export default function WRightScore() {
 
   // Splash then load live competitions from Supabase
   useEffect(() => {
-    setTimeout(() => setSplashDone(true), 3200);
-    setTimeout(() => loadLiveComps(), 3000);
+    setTimeout(() => setSplashDone(true), 1800);
+    setTimeout(() => loadLiveComps(), 1600);
   }, []);
 
   const loadLiveComps = async () => {
@@ -191,14 +191,14 @@ export default function WRightScore() {
       if (comps.length === 1) {
         // Only one live — load it automatically
         await loadCompetition(comps[0]);
-        setTimeout(() => setPage("pin"), 3500);
+        setPage("pin");
       } else {
         // Multiple or none — go to pin page to show selection
-        setTimeout(() => setPage("pin"), 3500);
+        setPage("pin");
       }
     } catch(e) {
       setLoadError("Could not connect to server");
-      setTimeout(() => setPage("pin"), 3500);
+      setPage("pin");
     }
   };
 
@@ -384,7 +384,7 @@ export default function WRightScore() {
     if (!bidItem || !team) return;
     const amount = parseFloat(bidAmount);
     const itemBids = bids[bidItem.id] || [];
-    const currentTop = itemBids.length > 0 ? Math.max(...itemBids.map(b => b.amount)) : (bidItem.start_bid || bidItem.startBid || 0) - 1;
+    const currentTop = itemBids.length > 0 ? Math.max(...itemBids.map(b => b.amount)) : (bidItem.start_bid || bidItem.start_bid || 0) - 1;
     const minBid = currentTop + 10;
     if (isNaN(amount) || amount < minBid) { setBidError(`Minimum bid is €${minBid}`); return; }
     try {
@@ -652,7 +652,7 @@ export default function WRightScore() {
               const done = s !== null;
               const vp = done ? s - h.par : null;
               // Strong contrast colours
-              const bg = i === currentH ? C.navy
+              const bg = i === currentH ? "#000000"
                 : done ? (vp < 0 ? "#15803d" : vp === 0 ? "#1e40af" : "#b91c1c")
                 : "#e2e8f0";
               const col = i === currentH ? C.white
@@ -662,7 +662,7 @@ export default function WRightScore() {
                 <button key={i} onClick={() => setCurrentH(i)}
                   style={{ flexShrink: 0, width: 68, height: 68, borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 18, fontWeight: 700, transition: "all 0.15s", position: "relative",
                     background: bg, color: col,
-                    boxShadow: i === currentH ? `0 2px 8px rgba(27,75,138,0.5)` : done ? "0 2px 6px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.08)",
+                    boxShadow: i === currentH ? `0 2px 8px rgba(0,0,0,0.5)` : done ? "0 2px 6px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.08)",
                     outline: sponsoredHolesData[i] ? `3px solid ${sponsoredHolesData[i].sponsorColor}` : "none",
                   }}>
                   {h.h}
@@ -1123,7 +1123,7 @@ export default function WRightScore() {
                 <div style={{ background:C.navy, padding:"16px 20px 14px" }}>
                   <div style={{ fontSize:10, color:"rgba(255,255,255,0.5)", letterSpacing:2, textTransform:"uppercase", marginBottom:4 }}>Place a Bid · All proceeds to charity ❤️</div>
                   <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                    <div style={{ fontSize:36 }}>{bidItem.emoji}</div>
+                    <div style={{ fontSize:36 }}>{bidItem.emoji || "🏆"}</div>
                     <div>
                       <div style={{ fontSize:18, fontWeight:900, color:C.white }}>{bidItem.title}</div>
                       <div style={{ fontSize:12, color:"rgba(255,255,255,0.6)", marginTop:2 }}>{bidItem.description}</div>
@@ -1133,17 +1133,17 @@ export default function WRightScore() {
                 <div style={{ padding:"16px 20px" }}>
                   {(() => {
                     const top = topBid(bidItem.id);
-                    const minNext = (top ? top.amount : bidItem.startBid - 1) + 10;
+                    const minNext = (top ? top.amount : bidItem.start_bid - 1) + 10;
                     return (<>
                       <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
                         <div>
                           <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>{top ? "Current Bid" : "Starting Bid"}</div>
-                          <div style={{ fontSize:28, fontWeight:900, color:C.navy }}>€{top ? top.amount : bidItem.startBid}</div>
+                          <div style={{ fontSize:28, fontWeight:900, color:C.navy }}>€{top ? top.amount : bidItem.start_bid}</div>
                           <div style={{ fontSize:11, color:C.muted }}>Min next bid: €{minNext}</div>
                         </div>
                         <div style={{ textAlign:"right" }}>
                           <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>Closes</div>
-                          <div style={{ fontSize:18, fontWeight:700, color:C.red }}>{bidItem.closesAt}</div>
+                          <div style={{ fontSize:18, fontWeight:700, color:C.red }}>{bidItem.closes_at}</div>
                           <div style={{ fontSize:11, color:C.muted }}>{(bids[bidItem.id]||[]).length} bid{(bids[bidItem.id]||[]).length!==1?"s":""}</div>
                         </div>
                       </div>
@@ -1205,13 +1205,13 @@ export default function WRightScore() {
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:800, fontSize:15, color:C.text }}>{item.title}</div>
                       <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>{item.description}</div>
-                      <div style={{ fontSize:11, color:C.red, marginTop:4, fontWeight:600 }}>⏰ Closes {item.closesAt}</div>
+                      <div style={{ fontSize:11, color:C.red, marginTop:4, fontWeight:600 }}>⏰ Closes {item.closes_at}</div>
                     </div>
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderTop:`1px solid ${C.border}` }}>
                     <div>
                       <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1 }}>{top ? "Current Bid" : "Starting Bid"}</div>
-                      <div style={{ fontSize:24, fontWeight:900, color:iAmWinning?C.green:C.navy }}>€{top ? top.amount : item.startBid}</div>
+                      <div style={{ fontSize:24, fontWeight:900, color:iAmWinning?C.green:C.navy }}>€{top ? top.amount : item.start_bid}</div>
                       <div style={{ fontSize:10, color:C.muted }}>{(bids[item.id]||[]).length} bid{(bids[item.id]||[]).length!==1?"s":""}</div>
                     </div>
                     <div style={{ textAlign:"right" }}>
