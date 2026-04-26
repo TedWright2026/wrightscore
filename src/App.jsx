@@ -367,9 +367,17 @@ export default function WRightScore() {
           Enter →
         </button>
 
-        <button onClick={() => setPage("leaderboard")} style={{ marginTop: 16, background: "none", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 12, cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}>
-          View Leaderboard
-        </button>
+        {/* Leaderboard & Auction buttons */}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, width: "100%" }}>
+          <button onClick={() => { setLbTab("teams"); setPage("leaderboard"); }}
+            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(255,255,255,0.2)`, background: "rgba(255,255,255,0.07)", color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>
+            🏆 Leaderboard
+          </button>
+          <button onClick={() => { setLbTab("auction"); setPage("leaderboard"); }}
+            style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(232,66,42,0.4)`, background: "rgba(232,66,42,0.12)", color: C.red, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>
+            ❤️ Auction
+          </button>
+        </div>
       </div>
     </div>
   );
