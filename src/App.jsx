@@ -1224,8 +1224,27 @@ export default function WRightScore() {
             </div>
           )}
 
-          <div style={{ fontSize:12, color:C.muted, marginBottom:12, textAlign:"center", fontStyle:"italic" }}>
-            ❤️ All proceeds go to charity — bid generously!
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+            <div style={{ fontSize:12, color:C.muted, fontStyle:"italic" }}>
+              ❤️ All proceeds go to charity — bid generously!
+            </div>
+            <button onClick={async () => {
+              if (!competition) return;
+              const [items, existingBids] = await Promise.all([
+                sb.get("auction_items", `select=*&competition_id=eq.${competition.id}&order=sort_order`),
+                sb.get("auction_bids", `select=*&competition_id=eq.${competition.id}&order=placed_at.desc`),
+              ]);
+              setAuctionItems(items.map(i => ({ ...i, start_bid: i.start_bid || 0 })));
+              const bidsMap = {};
+              existingBids.forEach(b => {
+                if (!bidsMap[b.item_id]) bidsMap[b.item_id] = [];
+                bidsMap[b.item_id].push({ teamName: b.team_name, amount: b.amount, time: new Date(b.placed_at).toLocaleTimeString() });
+              });
+              setBids(bidsMap);
+            }}
+              style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 14px", borderRadius:20, border:`1px solid ${C.border}`, background:C.white, color:C.navy, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+              ↺ Refresh
+            </button>
           </div>
 
           {auctionItems.map(item => {
