@@ -304,7 +304,6 @@ export default function WRightScore() {
   // PIN sign in
   const handlePin = async () => {
     if (!pinInput.trim()) return;
-    // If multiple live comps and none selected yet, ignore
     if (!competition && liveComps.length !== 1) return;
     try {
       const found = allTeams.find(t => t.pin === pinInput.trim());
@@ -312,17 +311,53 @@ export default function WRightScore() {
       setTeam(found);
       setPinError("");
       setPinInput("");
+      // Load any existing scores for this team
+      try {
+        const existing = await sb.get("scores", `select=*&competition_id=eq.${competition.id}&team_id=eq.${found.id}`);
+        if (existing.length > 0) {
+          const loadedScores = Array(18).fill(null);
+          const loadedDrives = Array(18).fill(null);
+          existing.forEach(s => {
+            if (s.hole_index >= 0 && s.hole_index < 18) {
+              loadedScores[s.hole_index] = s.gross_score;
+              loadedDrives[s.hole_index] = s.drive_player ?? null;
+            }
+          });
+          setScores(loadedScores);
+          setDrives(loadedDrives);
+          const firstUnscore = loadedScores.findIndex(s => s === null);
+          if (firstUnscore > 0) setCurrentH(firstUnscore);
+        }
+      } catch(e) { console.error("Could not load existing scores:", e.message); }
       setPage("scoring");
     } catch(e) {
       setPinError("Error connecting — try again");
     }
   };
 
-  // Set score for hole — triggers sponsor popup if next hole is sponsored
-  const setHoleScore = (hIdx, val) => {
+  // Set score for hole — saves to Supabase and triggers sponsor popup
+  const setHoleScore = async (hIdx, val) => {
     const next = [...scores];
     next[hIdx] = val === "" ? null : parseInt(val);
     setScores(next);
+    // Save to Supabase if we have a team and competition
+    if (team && competition && val !== "") {
+      setSyncStatus("saving");
+      try {
+        await sb.upsert("scores", [{
+          competition_id: competition.id,
+          team_id: team.id,
+          hole_index: hIdx,
+          gross_score: parseInt(val),
+          drive_player: drives[hIdx] ?? null,
+        }]);
+        setSyncStatus("saved");
+        setTimeout(() => setSyncStatus("online"), 1500);
+      } catch(e) {
+        setSyncStatus("error");
+        console.error("Score save failed:", e.message);
+      }
+    }
     // Check if next hole is sponsored — show popup
     const nextIdx = hIdx + 1;
     if (nextIdx < 18 && sponsoredHolesData[nextIdx] && val !== "") {
