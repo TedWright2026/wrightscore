@@ -404,12 +404,29 @@ export default function WRightScore() {
     setDrives(next);
   };
 
-  // Handle photo upload for sponsored hole — includes player assignment
+  // Handle photo upload for sponsored hole — saves to Supabase
   const handlePhoto = (hIdx, file, playerName) => {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = e => {
-      setPhotos(prev => ({ ...prev, [hIdx]: { url: e.target.result, playerName, teamName: team?.name, timestamp: new Date().toLocaleTimeString() } }));
+    reader.onload = async e => {
+      const photoUrl = e.target.result;
+      // Update local state immediately
+      setPhotos(prev => ({ ...prev, [hIdx]: { url: photoUrl, playerName, teamName: team?.name, timestamp: new Date().toLocaleTimeString() } }));
+      // Save to Supabase
+      if (team && competition) {
+        try {
+          await sb.upsert("prize_photos", [{
+            competition_id: competition.id,
+            hole_index: hIdx,
+            team_id: team.id,
+            player_name: playerName,
+            photo_url: photoUrl,
+            is_winner: false,
+          }]);
+        } catch(e) {
+          console.error("Photo save failed:", e.message);
+        }
+      }
     };
     reader.readAsDataURL(file);
   };
