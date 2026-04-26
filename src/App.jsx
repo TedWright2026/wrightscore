@@ -1184,8 +1184,8 @@ export default function WRightScore() {
                               onChange={e => { setBidAmount(e.target.value); setBidError(""); }}
                               style={{ width:"100%", padding:"12px 12px 12px 28px", border:`2px solid ${bidError?C.red:C.border}`, borderRadius:10, fontSize:18, fontWeight:700, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }}/>
                           </div>
-                          <button onClick={handleBid} disabled={!team}
-                            style={{ padding:"12px 20px", borderRadius:10, border:"none", background:team?C.red:"#ccc", color:C.white, fontWeight:700, fontSize:15, cursor:team?"pointer":"not-allowed", fontFamily:"inherit" }}>
+                          <button onClick={handleBid} disabled={!team || bidItem?.is_closed}
+                            style={{ padding:"12px 20px", borderRadius:10, border:"none", background:team&&!bidItem?.is_closed?C.red:"#ccc", color:C.white, fontWeight:700, fontSize:15, cursor:team&&!bidItem?.is_closed?"pointer":"not-allowed", fontFamily:"inherit" }}>
                             Bid ❤️
                           </button>
                         </div>
@@ -1235,10 +1235,16 @@ export default function WRightScore() {
                     <div style={{ textAlign:"right" }}>
                       {iAmWinning && <div style={{ fontSize:11, color:C.green, fontWeight:700, marginBottom:6 }}>🏆 You're winning!</div>}
                       {myBids.length > 0 && !iAmWinning && <div style={{ fontSize:11, color:C.amber, fontWeight:700, marginBottom:6 }}>⚡ You've been outbid!</div>}
-                      <button onClick={() => { setBidItem(item); setBidAmount(""); setBidError(""); }}
-                        style={{ padding:"10px 18px", borderRadius:10, border:"none", background:iAmWinning?C.green:C.red, color:C.white, fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>
-                        {myBids.length > 0 ? "Bid Again" : "Place Bid"} ❤️
-                      </button>
+                      {item.is_closed ? (
+                        <div style={{ padding:"10px 18px", borderRadius:10, background:"rgba(0,0,0,0.1)", color:C.muted, fontWeight:700, fontSize:14, textAlign:"center" }}>
+                          🔒 Bidding Closed
+                        </div>
+                      ) : (
+                        <button onClick={() => { setBidItem(item); setBidAmount(""); setBidError(""); }}
+                          style={{ padding:"10px 18px", borderRadius:10, border:"none", background:iAmWinning?C.green:C.red, color:C.white, fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>
+                          {myBids.length > 0 ? "Bid Again" : "Place Bid"} ❤️
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
