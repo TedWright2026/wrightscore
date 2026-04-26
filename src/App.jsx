@@ -340,7 +340,6 @@ export default function WRightScore() {
     const next = [...scores];
     next[hIdx] = val === "" ? null : parseInt(val);
     setScores(next);
-    // Save to Supabase if we have a team and competition
     if (team && competition && val !== "") {
       setSyncStatus("saving");
       try {
@@ -349,16 +348,15 @@ export default function WRightScore() {
           team_id: team.id,
           hole_index: hIdx,
           gross_score: parseInt(val),
+          player_slot: 0,
           drive_player: drives[hIdx] ?? null,
         }]);
         setSyncStatus("saved");
         setTimeout(() => setSyncStatus("online"), 1500);
       } catch(e) {
-        setSyncStatus("error");
-        console.error("Score save failed:", e.message);
+        setSyncStatus("error:" + e.message);
       }
     }
-    // Check if next hole is sponsored — show popup
     const nextIdx = hIdx + 1;
     if (nextIdx < 18 && sponsoredHolesData[nextIdx] && val !== "") {
       setTimeout(() => setSponsorPopup(nextIdx), 600);
@@ -621,6 +619,9 @@ export default function WRightScore() {
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", letterSpacing: 1 }}>{team.name}</div>
+              {syncStatus === "saving" && <div style={{ fontSize: 9, color: C.amber }}>💾</div>}
+              {syncStatus === "saved" && <div style={{ fontSize: 9, color: "#4ade80" }}>✓</div>}
+              {syncStatus.startsWith("error") && <div style={{ fontSize: 9, color: C.red }} title={syncStatus}>⚠️</div>}
               <button onClick={() => setPage("leaderboard")} style={{ background: C.red, border: "none", borderRadius: 8, color: C.white, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>🏆</button>
             </div>
           </div>
