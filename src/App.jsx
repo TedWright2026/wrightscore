@@ -954,7 +954,7 @@ export default function WRightScore() {
               <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, marginTop: 2 }}>Ranked by net score · Scramble allowance applied</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 60px 60px 40px", gap: 4, padding: "8px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
-              {["","Team","Gross","Net","Holes"].map((h,i) => (
+              {["","Team","Shots","Net","Holes"].map((h,i) => (
                 <div key={i} style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: i > 1 ? "center" : "left" }}>{h}</div>
               ))}
             </div>
@@ -974,7 +974,7 @@ export default function WRightScore() {
                     <div style={{ fontWeight: 700, fontSize: 14, color: isMine ? C.navy : C.text }}>{t.name}{isMine ? " ★" : ""}</div>
                     <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Allow: -{t.allowance} shots</div>
                   </div>
-                  <div style={{ textAlign: "center", fontWeight: 900, fontSize: 16, color: gvp.color }}>{gvp.label}</div>
+                  <div style={{ textAlign: "center", fontWeight: 700, fontSize: 16, color: C.text }}>{t.gross}</div>
                   <div style={{ textAlign: "center", fontWeight: 900, fontSize: 18, color: nvp.color }}>{nvp.label}</div>
                   <div style={{ textAlign: "center", fontSize: 12, color: C.muted, fontWeight: 700 }}>{t.holes}</div>
                 </div>
@@ -1009,27 +1009,29 @@ export default function WRightScore() {
           const winner = prizeWinners[idx];
           return (
             <div key={idx} style={card}>
-              {/* Sponsor header */}
-              <div style={{ background: sponsor.sponsorColor, padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              {/* Sponsor header with large logo */}
+              <div style={{ background: sponsor.sponsorColor, padding:"20px 16px", display:"flex", flexDirection:"column", alignItems:"center", textAlign:"center", gap:16 }}>
+                {sponsor.sponsorLogo && (
+                  <img src={sponsor.sponsorLogo} alt="sponsor" style={{ height:120, maxWidth:"80%", objectFit:"contain", background:"rgba(255,255,255,0.95)", borderRadius:12, padding:"8px 16px" }}/>
+                )}
                 <div>
                   <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.7)", letterSpacing:2, textTransform:"uppercase" }}>Hole {idx+1} · Par {hole.par}</div>
-                  <div style={{ fontSize:18, fontWeight:900, color:C.white, marginTop:2 }}>{sponsor.icon} {sponsor.type}</div>
-                  <div style={{ fontSize:11, color:"rgba(255,255,255,0.7)", marginTop:2 }}>Sponsored by {sponsor.sponsorName}</div>
+                  <div style={{ fontSize:20, fontWeight:900, color:C.white, marginTop:4 }}>{sponsor.icon} {sponsor.type}</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,0.8)", marginTop:4, fontWeight:600 }}>Sponsored by {sponsor.sponsorName}</div>
                 </div>
-                {sponsor.sponsorLogo && <img src={sponsor.sponsorLogo} alt="sponsor" style={{ height:36, objectFit:"contain", background:"rgba(255,255,255,0.9)", borderRadius:4, padding:"1px 4px" }}/>}
               </div>
 
               {/* Prize description */}
               {sponsor.prizeDesc && (
-                <div style={{ padding:"12px 16px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
-                  <span style={{ fontSize:20 }}>🏆</span>
-                  <div style={{ fontWeight:700, fontSize:14, color:C.text }}>{sponsor.prizeDesc}</div>
+                <div style={{ padding:"16px", display:"flex", alignItems:"center", gap:12, borderBottom:`1px solid ${C.border}` }}>
+                  <span style={{ fontSize:28 }}>🏆</span>
+                  <div style={{ fontWeight:700, fontSize:16, color:C.text }}>{sponsor.prizeDesc}</div>
                 </div>
               )}
 
               {/* Winner banner */}
               {winner ? (
-                <div style={{ background:C.greenLt, padding:"12px 16px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ background:C.greenLt, padding:"12px 16px", display:"flex", alignItems:"center", gap:12 }}>
                   <div style={{ fontSize:28 }}>🏆</div>
                   <div>
                     <div style={{ fontSize:11, fontWeight:700, color:C.green, textTransform:"uppercase", letterSpacing:1 }}>Winner</div>
@@ -1038,53 +1040,8 @@ export default function WRightScore() {
                   </div>
                 </div>
               ) : (
-                <div style={{ padding:"10px 16px", background:C.amberLt, borderBottom:`1px solid ${C.border}` }}>
+                <div style={{ padding:"10px 16px", background:C.amberLt }}>
                   <div style={{ fontSize:12, color:C.amber, fontWeight:600 }}>⏳ Winner not yet confirmed</div>
-                </div>
-              )}
-
-              {/* Photo gallery */}
-              <div style={{ padding:"14px 16px" }}>
-                <div style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>
-                  📸 Submissions {photo ? "(1)" : "(0)"}
-                </div>
-                {photo ? (
-                  <div>
-                    <div style={{ position:"relative", borderRadius:12, overflow:"hidden" }}>
-                      <img src={photo.url} alt="submission" style={{ width:"100%", maxHeight:220, objectFit:"cover", display:"block" }}/>
-                      {/* Winner badge on photo */}
-                      {winner?.playerName === photo.playerName && (
-                        <div style={{ position:"absolute", top:10, left:10, background:C.green, color:C.white, borderRadius:20, padding:"4px 10px", fontSize:11, fontWeight:700 }}>
-                          🏆 Winner
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ marginTop:10, padding:"10px 12px", background:C.bg, borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <div>
-                        <div style={{ fontWeight:700, fontSize:13, color:C.text }}>{photo.playerName}</div>
-                        <div style={{ fontSize:10, color:C.muted }}>{photo.teamName} · {photo.timestamp}</div>
-                      </div>
-                      {!winner && (
-                        <button onClick={() => setPrizeWinners(prev => ({ ...prev, [idx]: { playerName: photo.playerName, teamName: photo.teamName } }))}
-                          style={{ background:sponsor.sponsorColor, border:"none", borderRadius:8, color:C.white, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
-                          Mark Winner 🏆
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ padding:"30px 0", textAlign:"center", color:C.muted }}>
-                    <div style={{ fontSize:28, marginBottom:6 }}>📷</div>
-                    <div style={{ fontSize:12 }}>No photos submitted yet</div>
-                  </div>
-                )}
-              </div>
-
-              {/* Prize */}
-              {sponsor.prizeImage && (
-                <div style={{ padding:"0 16px 14px" }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:8 }}>The Prize</div>
-                  <img src={sponsor.prizeImage} alt="prize" style={{ width:"100%", borderRadius:10, objectFit:"contain", maxHeight:120 }}/>
                 </div>
               )}
             </div>
