@@ -260,8 +260,8 @@ export default function WRightScore() {
           const sponsorMap = {};
           sponsors.forEach(sh => {
             sponsorMap[sh.hole_index] = {
-              type: sh.type === "nearest_pin" ? "Nearest the Pin" : sh.type === "longest_drive" ? "Longest Drive" : sh.type,
-              icon: sh.type === "nearest_pin" ? "🎯" : sh.type === "longest_drive" ? "🏌️" : "⭐",
+              type: sh.type === "nearest_pin" ? "Nearest the Pin" : sh.type === "longest_drive" ? "Longest Drive" : "Hole Sponsor",
+              icon: sh.type === "nearest_pin" ? "🎯" : sh.type === "longest_drive" ? "🏌️" : "🏅",
               sponsorName: sh.sponsor_name || "Sponsor",
               sponsorColor: sh.sponsor_color || "#2563eb",
               sponsorLogo: sh.sponsor_logo || null,
@@ -574,18 +574,6 @@ export default function WRightScore() {
               style={{ marginTop: 20, width: "100%", padding: "16px", borderRadius: 14, border: "none", background: pinInput.length === 4 ? C.red : "rgba(255,255,255,0.1)", color: C.white, fontSize: 16, fontWeight: 700, cursor: pinInput.length === 4 ? "pointer" : "not-allowed", fontFamily: "inherit", transition: "background 0.2s" }}>
               Enter →
             </button>
-
-            {/* Leaderboard & Auction — always active once competition loaded */}
-            <div style={{ display: "flex", gap: 10, marginTop: 16, width: "100%" }}>
-              <button onClick={() => { setLbTab("teams"); setPage("leaderboard"); }}
-                style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(255,255,255,0.2)`, background: "rgba(255,255,255,0.07)", color: C.white, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                🏆 Leaderboard
-              </button>
-              <button onClick={() => { setLbTab("auction"); setPage("leaderboard"); }}
-                style={{ flex: 1, padding: "14px 0", borderRadius: 14, border: `2px solid rgba(232,66,42,0.4)`, background: "rgba(232,66,42,0.12)", color: C.red, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                ❤️ Auction
-              </button>
-            </div>
           </>
         )}
       </div>
@@ -818,79 +806,6 @@ export default function WRightScore() {
                       <span>{val}</span>
                       <span style={{ fontSize: 9, fontWeight: 600, color: selected ? "rgba(255,255,255,0.7)" : vp.color }}>{offset === 0 ? "Par" : offset === -3 ? "Albatross" : vp.label}</span>
                     </button>
-                  );
-                })}
-              </div>
-            </div>
-            {/* Photo upload — sponsored holes only */}
-            {isSponsored && (
-              <div style={{ padding:"0 16px 16px" }}>
-                <div style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>
-                  📸 Upload Your Shot
-                </div>
-                {photos[currentH] ? (
-                  <div style={{ position:"relative" }}>
-                    <img src={photos[currentH].url} alt="shot" style={{ width:"100%", borderRadius:12, objectFit:"cover", maxHeight:200 }}/>
-                    <div style={{ marginTop:8, padding:"8px 12px", background:C.navyLt, borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <div>
-                        <div style={{ fontSize:12, fontWeight:700, color:C.navy }}>{photos[currentH].playerName}</div>
-                        <div style={{ fontSize:10, color:C.muted }}>{photos[currentH].teamName} · {photos[currentH].timestamp}</div>
-                      </div>
-                      <button onClick={() => setPhotos(prev => { const n={...prev}; delete n[currentH]; return n; })}
-                        style={{ background:"none", border:`1px solid ${C.border}`, color:C.muted, borderRadius:8, padding:"4px 8px", fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    {/* Player selector */}
-                    <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>Who made the shot?</div>
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
-                      {team.players.map((p, i) => {
-                        const sel = assigningPrize === i;
-                        return (
-                          <button key={i} onClick={() => setAssigningPrize(sel ? null : i)}
-                            style={{ padding:"8px 10px", borderRadius:10, border:`2px solid ${sel ? sponsorInfo.sponsorColor : C.border}`, background: sel ? sponsorInfo.sponsorColor : C.white, color: sel ? C.white : C.text, fontFamily:"inherit", fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 0.15s" }}>
-                            {p.name.split(" ")[0]}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {/* Upload button — only active if player selected */}
-                    <label style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:90, border:`2px dashed ${assigningPrize !== null ? sponsorInfo.sponsorColor : C.border}`, borderRadius:12, cursor: assigningPrize !== null ? "pointer" : "not-allowed", gap:6, background: assigningPrize !== null ? C.bg : "#f8f8f8", opacity: assigningPrize !== null ? 1 : 0.5 }}>
-                      <span style={{ fontSize:24 }}>📷</span>
-                      <span style={{ fontSize:12, fontWeight:600, color: assigningPrize !== null ? sponsorInfo.sponsorColor : C.muted }}>
-                        {assigningPrize !== null ? `Upload shot for ${team.players[assigningPrize].name.split(" ")[0]}` : "Select player first"}
-                      </span>
-                      <input type="file" accept="image/*" capture="environment" style={{ display:"none" }}
-                        disabled={assigningPrize === null}
-                        onChange={e => { handlePhoto(currentH, e.target.files[0], team.players[assigningPrize].name); setAssigningPrize(null); }}/>
-                    </label>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <div style={{ ...card, margin: "0 12px 12px" }}>
-            <div style={{ padding: "12px 16px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Drive Usage</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {team.players.map((p, i) => {
-                  const count = driveCounts[i];
-                  const pct = Math.round((count / Math.max(holesScored, 1)) * 100);
-                  const ok = count >= 3;
-                  return (
-                    <div key={i} style={{ background: C.bg, borderRadius: 10, padding: "10px 12px" }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                        <div style={{ flex: 1, height: 6, background: C.border, borderRadius: 3, overflow: "hidden" }}>
-                          <div style={{ width: `${pct}%`, height: "100%", background: ok ? C.green : C.navy, borderRadius: 3, transition: "width 0.3s" }} />
-                        </div>
-                        <div style={{ fontSize: 13, fontWeight: 900, color: ok ? C.green : C.navy, minWidth: 24 }}>{count}</div>
-                      </div>
-                      {!ok && <div style={{ fontSize: 10, color: C.red, marginTop: 3 }}>Min 3 required</div>}
-                    </div>
                   );
                 })}
               </div>
