@@ -690,17 +690,17 @@ export default function WRightScore() {
               const done = s !== null;
               const vp = done ? s - h.par : null;
               // Strong contrast colours
-              const bg = i === currentH ? "#000000"
-                : done ? "#16A34A"
+              const bg = i === currentH ? "#1B4B8A"
+                : done ? "#4ade80"
                 : "#e2e8f0";
-              const col = i === currentH ? C.white
-                : done ? C.white
+              const col = i === currentH ? "#ffffff"
+                : done ? "#14532d"
                 : "#94a3b8";
               return (
                 <button key={i} onClick={() => setCurrentH(i)}
                   style={{ flexShrink: 0, width: 68, height: 68, borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 18, fontWeight: 700, transition: "all 0.15s", position: "relative",
                     background: bg, color: col,
-                    boxShadow: i === currentH ? `0 2px 8px rgba(0,0,0,0.4)` : "none",
+                    boxShadow: i === currentH ? `0 2px 8px rgba(27,75,138,0.4)` : "none",
                     outline: sponsoredHolesData[i] ? `3px solid ${sponsoredHolesData[i].sponsorColor}` : "none",
                   }}>
                   {h.h}
