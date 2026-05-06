@@ -985,17 +985,20 @@ export default function WRightScore() {
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2 }}>
-                      {[-3,-2,-1,0,1,2,3,4].map(off => {
-                        const val = r.par + off;
-                        if (val < 1) return null;
-                        const selected = r.sc === val;
-                        return (
-                          <button key={off} onClick={() => setStablefordScore(currentH, r.slot, String(val))}
-                            style={{ flex: "1 0 38px", minWidth: 38, height: 42, borderRadius: 8, border: `2px solid ${selected ? C.navy : C.border}`, background: selected ? C.navy : C.white, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: selected ? C.white : C.text, transition: "all 0.1s" }}>
-                            {val}
-                          </button>
-                        );
-                      })}
+                      {(() => {
+                        const lo = Math.max(1, r.par - 3);
+                        const vals = [];
+                        for (let v = lo; v <= 10; v++) vals.push(v);
+                        return vals.map(val => {
+                          const selected = r.sc === val;
+                          return (
+                            <button key={val} onClick={() => setStablefordScore(currentH, r.slot, String(val))}
+                              style={{ flex: "1 0 38px", minWidth: 38, height: 42, borderRadius: 8, border: `2px solid ${selected ? C.navy : C.border}`, background: selected ? C.navy : C.white, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: selected ? C.white : C.text, transition: "all 0.1s" }}>
+                              {val}
+                            </button>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 );
@@ -1223,19 +1226,24 @@ export default function WRightScore() {
                 Team Score {hDrive === null ? "— select drive first" : ""}
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {[-3,-2,-1,0,1,2,3,4].map(offset => {
-                  const val = hole.par + offset;
-                  if (val < 1) return null;
-                  const selected = hScore === val;
-                  const vp = vsParLabel(offset);
-                  return (
-                    <button key={offset} onClick={() => setHoleScore(currentH, String(val))}
-                      style={{ flex: "1 0 auto", minWidth: 44, height: 52, borderRadius: 10, border: `2px solid ${selected ? C.navy : C.border}`, background: selected ? C.navy : C.white, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 900, color: selected ? C.white : C.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, transition: "all 0.15s" }}>
-                      <span>{val}</span>
-                      <span style={{ fontSize: 9, fontWeight: 600, color: selected ? "rgba(255,255,255,0.7)" : vp.color }}>{offset === 0 ? "Par" : offset === -3 ? "Albatross" : vp.label}</span>
-                    </button>
-                  );
-                })}
+                {(() => {
+                  const lo = Math.max(1, hole.par - 3);
+                  const vals = [];
+                  for (let v = lo; v <= 10; v++) vals.push(v);
+                  return vals.map(val => {
+                    const offset = val - hole.par;
+                    const selected = hScore === val;
+                    const vp = vsParLabel(offset);
+                    const label = offset === 0 ? "Par" : offset === -3 ? "Albatross" : vp.label;
+                    return (
+                      <button key={val} onClick={() => setHoleScore(currentH, String(val))}
+                        style={{ flex: "1 0 auto", minWidth: 44, height: 52, borderRadius: 10, border: `2px solid ${selected ? C.navy : C.border}`, background: selected ? C.navy : C.white, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 900, color: selected ? C.white : C.text, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, transition: "all 0.15s" }}>
+                        <span>{val}</span>
+                        <span style={{ fontSize: 9, fontWeight: 600, color: selected ? "rgba(255,255,255,0.7)" : vp.color }}>{label}</span>
+                      </button>
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
@@ -1361,15 +1369,15 @@ export default function WRightScore() {
           <button style={tPill(lbTab==="teams")} onClick={() => setLbTab("teams")}>🏆 Teams</button>
           <button style={tPill(lbTab==="nett")} onClick={() => setLbTab("nett")}>👤 Nett</button>
           <button style={tPill(lbTab==="gross")} onClick={() => setLbTab("gross")}>⛳ Gross</button>
-          <button style={tPill(lbTab==="prizes")} onClick={() => setLbTab("prizes")}>🎯 Prizes</button>
           <button style={tPill(lbTab==="auction")} onClick={() => setLbTab("auction")}>❤️ Auction</button>
+          <button style={tPill(lbTab==="prizes")} onClick={() => setLbTab("prizes")}>🎯 Prizes</button>
         </> : <>
           <button style={tPill(lbTab==="teams")} onClick={() => setLbTab("teams")}>🏆 Teams</button>
-          <button style={tPill(lbTab==="prizes")} onClick={() => setLbTab("prizes")}>
-            🎯 Prize Holes {Object.keys(photos).length > 0 ? `(${Object.keys(photos).length})` : ""}
-          </button>
           <button style={tPill(lbTab==="auction")} onClick={() => setLbTab("auction")}>
             ❤️ Auction
+          </button>
+          <button style={tPill(lbTab==="prizes")} onClick={() => setLbTab("prizes")}>
+            🎯 Prize Holes {Object.keys(photos).length > 0 ? `(${Object.keys(photos).length})` : ""}
           </button>
         </>}
       </div>
