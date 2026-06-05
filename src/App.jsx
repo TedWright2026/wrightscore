@@ -328,6 +328,7 @@ export default function WRightScore() {
   }, [page]);
   const activeCourse = courseData || CASTLE_GC;
   const isStableford = competition?.format === "stableford_b3of4";
+  const isChampagne  = competition?.format === "champagne_scramble";
 
   const allowance = team ? calcScrambleAllowance(team.players) : 0;
 
@@ -420,6 +421,64 @@ export default function WRightScore() {
     return { perPlayer, teamTotal, teamHoles };
   })();
 
+  // ─── CHAMPAGNE SCRAMBLE CALCS — current team ─────────────────────────────
+  // Format: all 4 tee off, best drive selected, each plays own ball to finish.
+  // Each player has a gross score per hole → individual stableford points using
+  // their own course/tee at 100% Course HCP.
+  // Team total per hole:
+  //   • Par 3       → best 3 of 4 stableford scores
+  //   • Par 4 / 5   → best 2 of 4 stableford scores
+  // "Par" for the best-N rule is the par from the comp's primary tee
+  // (activeCourse) — at Mullingar par-3s match across men's + women's tees so
+  // mixed teams work cleanly.
+  // Drive rule: every player must contribute ≥3 drives.
+  const myChampagne = (() => {
+    if (!team || !isChampagne) return null;
+    const players = (team.players || []).slice(0, 4);
+    while (players.length < 4) players.push(null);
+
+    const perPlayer = players.map((p, slot) => {
+      if (!p) return { slot, name: "—", idx: 0, cHcp: 0, phpNett: 0, points: 0, holesPlayed: 0, course: null };
+      const idx = parseFloat(p.handicap);
+      const pCourse = p.course || activeCourse;
+      const cHcp = courseHandicap(idx, pCourse);
+      const phpNett = playingHcp(idx, pCourse, 1.0);
+      let points = 0, played = 0;
+      (pCourse.holes || []).forEach((h, hIdx) => {
+        const sc = scoresByPlayer[slot]?.[hIdx];
+        if (sc != null) {
+          played++;
+          points += stbPts(sc, h.par, strokesOnHole(phpNett, h.si));
+        }
+      });
+      return { slot, name: p.name, idx: isNaN(idx) ? "–" : idx, cHcp, phpNett, points, holesPlayed: played, course: pCourse };
+    });
+
+    let teamTotal = 0, teamHoles = 0;
+    for (let hIdx = 0; hIdx < 18; hIdx++) {
+      const teamPar = activeCourse.holes[hIdx]?.par;
+      if (!teamPar) continue;
+      const bestN = teamPar === 3 ? 3 : 2;
+
+      const ptsThisHole = perPlayer.map(pp => {
+        if (!players[pp.slot] || !pp.course) return null;
+        const sc = scoresByPlayer[pp.slot]?.[hIdx];
+        if (sc == null) return null;
+        const h = pp.course.holes[hIdx];
+        if (!h) return null;
+        return stbPts(sc, h.par, strokesOnHole(pp.phpNett, h.si));
+      }).filter(x => x !== null);
+
+      if (ptsThisHole.length > 0) {
+        teamHoles++;
+        const topN = [...ptsThisHole].sort((a,b) => b-a).slice(0, bestN);
+        teamTotal += topN.reduce((s,x) => s+x, 0);
+      }
+    }
+
+    return { perPlayer, teamTotal, teamHoles };
+  })();
+
   // ─── STABLEFORD LEADERBOARDS (all teams) ───────────────────────────────────
   // Same per-player-course logic across the whole field.
   const stablefordBoards = (() => {
@@ -496,6 +555,83 @@ export default function WRightScore() {
     return { teams, nett, gross };
   })();
 
+  // ─── CHAMPAGNE SCRAMBLE LEADERBOARDS (all teams) ──────────────────────────
+  const champagneBoards = (() => {
+    if (!isChampagne) return null;
+    const playerRows = [];
+    allTeams.forEach(t => {
+      const players = (t.players || []).slice(0, 4);
+      players.forEach((p, slot) => {
+        if (!p) return;
+        const idx = parseFloat(p.handicap);
+        const pCourse = p.course || activeCourse;
+        const cHcp = courseHandicap(idx, pCourse);
+        const phpNett = playingHcp(idx, pCourse, 1.0);
+
+        let pNett = 0, pGross = 0, played = 0;
+        (pCourse.holes || []).forEach((h, hIdx) => {
+          let sc = null;
+          if (t.id === team?.id) {
+            sc = scoresByPlayer[slot]?.[hIdx];
+          } else {
+            const found = allScores.find(s => s.team_id === t.id && s.player_slot === slot && s.hole_index === hIdx);
+            sc = found?.gross_score ?? null;
+          }
+          if (sc != null) {
+            played++;
+            pNett  += stbPts(sc, h.par, strokesOnHole(phpNett, h.si));
+            pGross += stbPts(sc, h.par, 0);
+          }
+        });
+
+        playerRows.push({
+          teamId: t.id, teamName: t.name, slot,
+          name: p.name, idx: isNaN(idx) ? "–" : idx, cHcp, phpNett,
+          pNett, pGross, played,
+          courseName: pCourse?.name || "—",
+        });
+      });
+    });
+
+    const teams = allTeams.map(t => {
+      const tp = playerRows.filter(p => p.teamId === t.id);
+      const teamPlayerCourses = (t.players || []).slice(0, 4).map(pl => pl?.course || activeCourse);
+      let total = 0, holesScored = 0;
+      for (let hIdx = 0; hIdx < 18; hIdx++) {
+        const teamPar = activeCourse.holes[hIdx]?.par;
+        if (!teamPar) continue;
+        const bestN = teamPar === 3 ? 3 : 2;
+
+        const pts = tp.map(p => {
+          let sc = null;
+          if (t.id === team?.id) {
+            sc = scoresByPlayer[p.slot]?.[hIdx];
+          } else {
+            const found = allScores.find(s => s.team_id === t.id && s.player_slot === p.slot && s.hole_index === hIdx);
+            sc = found?.gross_score ?? null;
+          }
+          if (sc == null) return null;
+          const pCourse = teamPlayerCourses[p.slot];
+          const h = pCourse?.holes?.[hIdx];
+          if (!h) return null;
+          return stbPts(sc, h.par, strokesOnHole(p.phpNett, h.si));
+        }).filter(x => x !== null);
+
+        if (pts.length > 0) {
+          holesScored++;
+          const topN = [...pts].sort((a,b) => b-a).slice(0, bestN);
+          total += topN.reduce((s,x) => s+x, 0);
+        }
+      }
+      return { ...t, total, holesScored, playerCount: tp.length };
+    }).sort((a,b) => b.total - a.total);
+
+    const nett  = [...playerRows].filter(p => p.played > 0).sort((a,b) => b.pNett  - a.pNett);
+    const gross = [...playerRows].filter(p => p.played > 0).sort((a,b) => b.pGross - a.pGross);
+
+    return { teams, nett, gross };
+  })();
+
   // PIN sign in
   const handlePin = async () => {
     if (!pinInput.trim()) return;
@@ -518,6 +654,24 @@ export default function WRightScore() {
           });
           setScoresByPlayer(grid);
           // jump to first incomplete hole (any active player missing a score)
+          const firstIncomplete = activeCourse.holes.findIndex((_, hIdx) =>
+            grid.some((playerScores, slot) => found.players[slot] && playerScores[hIdx] === null)
+          );
+          if (firstIncomplete > 0) setCurrentH(firstIncomplete);
+        } else if (competition.format === "champagne_scramble") {
+          // CHAMPAGNE SCRAMBLE — populate BOTH scoresByPlayer AND drives
+          const grid = Array(4).fill(null).map(() => Array(18).fill(null));
+          const dr = Array(18).fill(null);
+          existing.forEach(s => {
+            if (s.player_slot >= 0 && s.player_slot < 4 && s.hole_index >= 0 && s.hole_index < 18) {
+              grid[s.player_slot][s.hole_index] = s.gross_score;
+              if (s.drive_player != null && dr[s.hole_index] == null) {
+                dr[s.hole_index] = s.drive_player;
+              }
+            }
+          });
+          setScoresByPlayer(grid);
+          setDrives(dr);
           const firstIncomplete = activeCourse.holes.findIndex((_, hIdx) =>
             grid.some((playerScores, slot) => found.players[slot] && playerScores[hIdx] === null)
           );
@@ -603,6 +757,72 @@ export default function WRightScore() {
     const nextIdx = hIdx + 1;
     if (allScored && nextIdx < 18 && sponsoredHolesData[nextIdx]) {
       setTimeout(() => setSponsorPopup(nextIdx), 600);
+    }
+  };
+
+  // CHAMPAGNE — set per-player gross score AND persist drive_player on that row
+  const setChampagneScore = async (hIdx, pSlot, val) => {
+    const grid = scoresByPlayer.map(row => [...row]);
+    const intVal = val === "" ? null : parseInt(val);
+    grid[pSlot][hIdx] = intVal;
+    setScoresByPlayer(grid);
+
+    if (team && competition && intVal != null) {
+      setSyncStatus("saving");
+      try {
+        await sb.upsert("scores", [{
+          competition_id: competition.id,
+          team_id: team.id,
+          hole_index: hIdx,
+          gross_score: intVal,
+          player_slot: pSlot,
+          drive_player: drives[hIdx] ?? null,
+        }]);
+        setSyncStatus("saved");
+        setTimeout(() => setSyncStatus("online"), 1500);
+      } catch(e) {
+        setSyncStatus("error:" + e.message);
+      }
+    }
+
+    const activeSlots = (team?.players || []).slice(0, 4).map((_, i) => i);
+    const allScored = activeSlots.every(slot => grid[slot][hIdx] != null);
+    const nextIdx = hIdx + 1;
+    if (allScored && nextIdx < 18 && sponsoredHolesData[nextIdx]) {
+      setTimeout(() => setSponsorPopup(nextIdx), 600);
+    }
+  };
+
+  // CHAMPAGNE — set/clear which player's drive was used on this hole.
+  // Drive lives on every score row's drive_player column; we update all
+  // existing rows for this hole so it persists regardless of who scored first.
+  const setChampagneDrive = async (hIdx, playerIdx) => {
+    const next = [...drives];
+    next[hIdx] = next[hIdx] === playerIdx ? null : playerIdx;
+    setDrives(next);
+    if (team && competition) {
+      setSyncStatus("saving");
+      try {
+        const updates = [];
+        for (let slot = 0; slot < 4; slot++) {
+          const sc = scoresByPlayer[slot]?.[hIdx];
+          if (sc != null) {
+            updates.push({
+              competition_id: competition.id,
+              team_id: team.id,
+              hole_index: hIdx,
+              gross_score: sc,
+              player_slot: slot,
+              drive_player: next[hIdx] ?? null,
+            });
+          }
+        }
+        if (updates.length > 0) await sb.upsert("scores", updates);
+        setSyncStatus("saved");
+        setTimeout(() => setSyncStatus("online"), 1500);
+      } catch(e) {
+        setSyncStatus("error:" + e.message);
+      }
     }
   };
 
@@ -769,6 +989,313 @@ export default function WRightScore() {
   );
 
   // ════════════════════════════════════════════════════════════════════════════
+  // RENDER — CHAMPAGNE SCRAMBLE SCORING
+  // Drive-selected scramble + per-player ball from drive to hole.
+  // Per-hole team total = best 3 of 4 stableford on par-3s, best 2 of 4 on par-4/5.
+  // ════════════════════════════════════════════════════════════════════════════
+  if (page === "scoring" && team && isChampagne) {
+    const teamPlayers = (team.players || []).slice(0, 4);
+    const sponsorInfo = sponsoredHolesData[currentH];
+    const isSponsored = !!sponsorInfo;
+
+    const teamPar = activeCourse.holes[currentH]?.par || 4;
+    const bestN = teamPar === 3 ? 3 : 2;
+    const bestNLabel = teamPar === 3 ? "Best 3 of 4" : "Best 2 of 4";
+
+    // Per-player rows for this hole — each uses their OWN course/tee
+    const holeRows = teamPlayers.map((p, slot) => {
+      const idx = parseFloat(p.handicap);
+      const pCourse  = p.course || activeCourse;
+      const pHole    = pCourse.holes[currentH] || { par: 4, si: 9 };
+      const phpNett  = playingHcp(idx, pCourse, 1.0);
+      const cHcp     = courseHandicap(idx, pCourse);
+      const strokes  = strokesOnHole(phpNett, pHole.si);
+      const sc       = scoresByPlayer[slot]?.[currentH];
+      const pts      = sc != null ? stbPts(sc, pHole.par, strokes) : null;
+      const teeLabel = (pCourse.name || "").match(/\(([^)]+)\)/)?.[1] || pCourse.name || "Tee";
+      return { slot, name: p.name, idx: isNaN(idx)?"–":idx, cHcp, phpNett, strokes, sc, pts, par: pHole.par, si: pHole.si, teeLabel, courseName: pCourse.name };
+    });
+
+    const validPts = holeRows.map(r => r.pts).filter(p => p != null).sort((a,b) => b-a);
+    const topNSum = validPts.slice(0, bestN).reduce((s,x) => s+x, 0);
+    const allScored = teamPlayers.every((_, slot) => scoresByPlayer[slot]?.[currentH] != null);
+    const driveSelected = drives[currentH] != null;
+
+    // Drive counts + warnings
+    const driveCountsCh = teamPlayers.map((_, i) => drives.filter(d => d === i).length);
+    const driveWarnsCh = driveCountsCh.map(c => c < 3);
+
+    // Holes done = every active player has scored AND a drive was selected
+    let holesDone = 0;
+    for (let h = 0; h < 18; h++) {
+      const allHere = teamPlayers.every((_, slot) => scoresByPlayer[slot]?.[h] != null);
+      const driveHere = drives[h] != null;
+      if (allHere && driveHere) holesDone++;
+    }
+
+    return (
+      <div style={{ width: "100%", height: "100dvh", background: C.bg, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: "'Montserrat',Arial,sans-serif" }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Montserrat:wght@400;600&display=swap');`}</style>
+
+        {sponsorPopup !== null && sponsoredHolesData[sponsorPopup] && (
+          <div style={{ position:"fixed", inset:0, zIndex:200, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}
+            onClick={() => { setSponsorPopup(null); setCurrentH(sponsorPopup); }}>
+            <div style={{ background:C.white, borderRadius:20, overflow:"hidden", width:"100%", maxWidth:340, boxShadow:"0 20px 60px rgba(0,0,0,0.4)" }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ background: sponsoredHolesData[sponsorPopup].sponsorColor, padding:"20px 20px 16px", textAlign:"center" }}>
+                <div style={{ fontSize:11, fontWeight:700, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,255,255,0.7)", marginBottom:8 }}>Sponsored by</div>
+                {sponsoredHolesData[sponsorPopup].sponsorLogo ? (
+                  <img src={sponsoredHolesData[sponsorPopup].sponsorLogo} alt="sponsor" style={{ height:48, objectFit:"contain" }}/>
+                ) : (
+                  <div style={{ fontSize:24, fontWeight:900, color:C.white, letterSpacing:"-0.5px" }}>
+                    {sponsoredHolesData[sponsorPopup].sponsorName}
+                  </div>
+                )}
+              </div>
+              <div style={{ padding:"16px 20px 12px", textAlign:"center", borderBottom:`1px solid ${C.border}` }}>
+                <div style={{ fontSize:32, marginBottom:6 }}>{sponsoredHolesData[sponsorPopup].icon}</div>
+                <div style={{ fontSize:22, fontWeight:900, color:C.text }}>{sponsoredHolesData[sponsorPopup].type}</div>
+                <div style={{ fontSize:14, color:C.muted, marginTop:4 }}>
+                  Hole {sponsorPopup + 1} — Par {activeCourse.holes[sponsorPopup].par}
+                </div>
+              </div>
+              <div style={{ padding:"14px 20px 8px", textAlign:"center" }}>
+                <div style={{ fontSize:10, fontWeight:700, letterSpacing:2, textTransform:"uppercase", color:C.muted, marginBottom:10 }}>The Prize</div>
+                <div style={{ background:sponsoredHolesData[sponsorPopup].sponsorColor+"18", borderRadius:12, padding:"14px 16px", marginBottom:8 }}>
+                  <div style={{ fontSize:28, marginBottom:6 }}>🏆</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:C.text, lineHeight:1.3 }}>
+                    {sponsoredHolesData[sponsorPopup].prizeDesc || "Prize TBC"}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => { setSponsorPopup(null); setCurrentH(sponsorPopup); }}
+                style={{ width:"100%", padding:"16px", border:"none", background:sponsoredHolesData[sponsorPopup].sponsorColor, color:C.white, fontSize:15, fontWeight:700, cursor:"pointer", fontFamily:"inherit", letterSpacing:0.5 }}>
+                Let's Go — Hole {sponsorPopup + 1} →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div style={{ background: C.navyDk, padding: "10px 16px 12px", flexShrink: 0, borderBottom: `3px solid ${C.red}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontFamily: "'Playfair Display',Georgia,serif", fontWeight: 700, fontSize: 18, color: C.white }}>
+              wRight<span style={{ color: C.red }}>Score</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", letterSpacing: 1 }}>{team.name}</div>
+              {syncStatus === "saving" && <div style={{ fontSize: 9, color: C.amber }}>💾</div>}
+              {syncStatus === "saved" && <div style={{ fontSize: 9, color: "#4ade80" }}>✓</div>}
+              {syncStatus.startsWith("error") && <div style={{ fontSize: 9, color: C.red }} title={syncStatus}>⚠️</div>}
+              <button onClick={() => setPage("leaderboard")} style={{ background: C.red, border: "none", borderRadius: 8, color: C.white, fontSize: 11, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>🏆</button>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+            <div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>Team Pts</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: "#4ade80" }}>{myChampagne?.teamTotal ?? 0}</div>
+            </div>
+            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 10, padding: "4px 0" }}>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>This Hole</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: allScored && driveSelected ? "#4ade80" : "rgba(255,255,255,0.5)" }}>{allScored && driveSelected ? topNSum : "–"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>Holes</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: C.white }}>{holesDone}/18</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+          {/* Hole nav strip */}
+          <div style={{ display: "flex", gap: 6, padding: "10px 12px 6px", overflowX: "auto" }}>
+            {activeCourse.holes.map((h, i) => {
+              const allScoredHere = teamPlayers.every((_, slot) => scoresByPlayer[slot]?.[i] != null);
+              const someScoredHere = teamPlayers.some((_, slot) => scoresByPlayer[slot]?.[i] != null);
+              const driveHere = drives[i] != null;
+              const fullyDone = allScoredHere && driveHere;
+              const bg = i === currentH ? "#1B4B8A"
+                : fullyDone ? "#4ade80"
+                : someScoredHere || driveHere ? "#fef3c7"
+                : "#e2e8f0";
+              const col = i === currentH ? "#ffffff"
+                : fullyDone ? "#14532d"
+                : someScoredHere || driveHere ? "#78350f"
+                : "#94a3b8";
+              return (
+                <button key={i} onClick={() => setCurrentH(i)}
+                  style={{ flexShrink: 0, width: 60, height: 60, borderRadius: 12, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 18, fontWeight: 700, position: "relative",
+                    background: bg, color: col,
+                    boxShadow: i === currentH ? `0 2px 8px rgba(27,75,138,0.4)` : "none",
+                    outline: sponsoredHolesData[i] ? `3px solid ${sponsoredHolesData[i].sponsorColor}` : "none",
+                  }}>
+                  {h.h}
+                  {fullyDone && i !== currentH && (
+                    <span style={{ position:"absolute", bottom:4, right:6, fontSize:10, opacity:0.8 }}>✓</span>
+                  )}
+                  {sponsoredHolesData[i] && (
+                    <span style={{ position:"absolute", top:-6, right:-6, fontSize:12, background:sponsoredHolesData[i].sponsorColor, borderRadius:"50%", width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      {sponsoredHolesData[i].icon === "🎯" ? "📍" : "💨"}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Current hole card */}
+          <div style={{ ...card, margin: "6px 12px" }}>
+            {isSponsored && (
+              <div style={{ background: sponsorInfo.sponsorColor }}>
+                <div style={{ padding:"8px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:18 }}>{sponsorInfo.icon}</span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:800, color:C.white, letterSpacing:0.3 }}>{sponsorInfo.type}</div>
+                      <div style={{ fontSize:10, color:"rgba(255,255,255,0.7)" }}>Sponsored by {sponsorInfo.sponsorName}</div>
+                    </div>
+                  </div>
+                  {sponsorInfo.sponsorLogo && <img src={sponsorInfo.sponsorLogo} alt="sponsor" style={{ height:28, objectFit:"contain", background:"rgba(255,255,255,0.9)", borderRadius:4, padding:"1px 4px" }}/>}
+                </div>
+                {sponsorInfo.prizeDesc && (
+                  <div style={{ padding:"6px 16px 10px", display:"flex", alignItems:"center", gap:6 }}>
+                    <span style={{ fontSize:14 }}>🏆</span>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.white }}>{sponsorInfo.prizeDesc}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            <div style={{ background: C.navy, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ color: C.white, fontWeight: 900, fontSize: 22 }}>Hole {currentH + 1}</div>
+                <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, marginTop: 2 }}>
+                  {(() => {
+                    const pars = [...new Set(holeRows.map(r => r.par))].sort();
+                    if (pars.length === 1) return `Par ${pars[0]} · ${bestNLabel}`;
+                    return `Par ${pars.join("/")} (mixed) · ${bestNLabel}`;
+                  })()}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>{bestNLabel}</div>
+                <div style={{ fontSize: 32, fontWeight: 900, color: allScored && driveSelected ? "#4ade80" : "rgba(255,255,255,0.3)" }}>{allScored && driveSelected ? topNSum : "–"}</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>pts this hole</div>
+              </div>
+            </div>
+
+            {/* Drive selection — same look as scramble */}
+            <div style={{ padding: "12px 14px 8px", background: driveSelected ? C.white : "#fff7ed", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: driveSelected ? C.green : C.amber, textTransform: "uppercase", letterSpacing: 1 }}>
+                  {driveSelected ? `✓ Drive: ${teamPlayers[drives[currentH]]?.name.split(" ")[0]}` : "⚠️ Select whose drive was used"}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {teamPlayers.map((p, i) => {
+                  const selected = drives[currentH] === i;
+                  const count = driveCountsCh[i];
+                  const needsMore = count < 3 && holesDone >= 15;
+                  return (
+                    <button key={i} onClick={() => setChampagneDrive(currentH, i)}
+                      style={{ padding: "8px 10px", borderRadius: 10, border: `2px solid ${selected ? C.green : needsMore ? C.red : C.border}`, background: selected ? C.green : needsMore ? C.redLt : C.white, cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "all 0.15s" }}>
+                      <div style={{ fontWeight: 700, fontSize: 12, color: selected ? C.white : C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {selected ? "✓ " : ""}{p.name.split(" ")[0]}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 3 }}>
+                        <div style={{ fontSize: 10, color: selected ? "rgba(255,255,255,0.7)" : C.muted }}>HCP {p.handicap}</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: selected ? "rgba(255,255,255,0.9)" : needsMore ? C.red : count >= 3 ? C.green : C.navy, background: selected ? "rgba(255,255,255,0.2)" : needsMore ? C.redLt : count >= 3 ? C.greenLt : C.navyLt, padding: "1px 5px", borderRadius: 8 }}>
+                          {count} drive{count !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {driveWarnsCh.some(w => w) && holesDone >= 12 && (
+                <div style={{ marginTop: 8, padding: "6px 10px", background: C.amberLt, borderRadius: 8, fontSize: 11, color: C.amber, fontWeight: 600 }}>
+                  ⚠️ {teamPlayers.filter((_, i) => driveWarnsCh[i]).map(p => p.name.split(" ")[0]).join(", ")} need{driveWarnsCh.filter(w=>w).length === 1 ? "s" : ""} min 3 drives
+                </div>
+              )}
+            </div>
+
+            {/* 4 player score rows */}
+            <div style={{ padding: "8px 12px 12px" }}>
+              {holeRows.map(r => {
+                const isTopContributor = allScored && r.pts != null && validPts.slice(0, bestN).includes(r.pts);
+                const tooked = validPts.slice(0, bestN);
+                const usedIndex = tooked.indexOf(r.pts);
+                return (
+                  <div key={r.slot} style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 12, background: isTopContributor ? "#dcfce7" : C.bg, border: `1px solid ${isTopContributor ? C.green : C.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0, flex:1 }}>
+                        <div style={{ width:24, height:24, borderRadius:"50%", background:C.navy, color:C.white, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, flexShrink:0 }}>
+                          {r.slot + 1}
+                        </div>
+                        <div style={{ minWidth:0, flex:1 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: C.text }}>
+                              {r.name}{isTopContributor ? " ⭐" : ""}
+                            </div>
+                            <div style={{ fontSize:9, fontWeight:700, padding:"1px 6px", borderRadius:8, background:C.navyLt, color:C.navy, letterSpacing:0.3 }}>
+                              {r.teeLabel}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
+                            Par {r.par} · SI {r.si} · HCP {r.idx} · Play {r.phpNett}{r.strokes > 0 ? ` · +${r.strokes} stroke${r.strokes>1?"s":""}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign:"right", minWidth:50, flexShrink:0 }}>
+                        <div style={{ fontSize: 22, fontWeight: 900, color: r.pts != null ? C.green : C.muted, lineHeight:1 }}>
+                          {r.pts != null ? r.pts : "–"}
+                        </div>
+                        <div style={{ fontSize: 9, color: C.muted, textTransform:"uppercase", letterSpacing:0.5 }}>pts</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2 }}>
+                      {(() => {
+                        const lo = Math.max(1, r.par - 3);
+                        const vals = [];
+                        for (let v = lo; v <= 10; v++) vals.push(v);
+                        return vals.map(val => {
+                          const selected = r.sc === val;
+                          return (
+                            <button key={val} onClick={() => setChampagneScore(currentH, r.slot, String(val))}
+                              style={{ flex: "1 0 38px", minWidth: 38, height: 42, borderRadius: 8, border: `2px solid ${selected ? C.navy : C.border}`, background: selected ? C.navy : C.white, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: selected ? C.white : C.text, transition: "all 0.1s" }}>
+                              {val}
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {(!allScored || !driveSelected) && (
+                <div style={{ padding: "8px 12px", background: C.amberLt, borderRadius: 10, fontSize: 11, color: C.amber, fontWeight: 600, textAlign: "center" }}>
+                  {!driveSelected && !allScored ? "⚠️ Select drive AND all 4 player scores for this hole to count" :
+                   !driveSelected ? "⚠️ Select whose drive was used" :
+                   `⚠️ All 4 players need a score (${bestNLabel.toLowerCase()} count)`}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flexShrink: 0, background: C.navyDk, display: "flex", borderTop: "1px solid rgba(255,255,255,0.08)", paddingBottom: "env(safe-area-inset-bottom)" }}>
+          <button onClick={() => setCurrentH(h => Math.max(0, h - 1))} disabled={currentH === 0}
+            style={{ flex: 1, padding: "12px 0", border: "none", background: "none", color: currentH === 0 ? "rgba(255,255,255,0.2)" : C.white, fontSize: 22, cursor: currentH === 0 ? "not-allowed" : "pointer" }}>‹</button>
+          <button onClick={() => setPage("leaderboard")}
+            style={{ flex: 2, padding: "12px 0", border: "none", background: "none", color: C.white, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}>🏆 LEADERBOARD</button>
+          <button onClick={() => setCurrentH(h => Math.min(17, h + 1))} disabled={currentH === 17}
+            style={{ flex: 1, padding: "12px 0", border: "none", background: "none", color: currentH === 17 ? "rgba(255,255,255,0.2)" : C.white, fontSize: 22, cursor: currentH === 17 ? "not-allowed" : "pointer" }}>›</button>
+        </div>
+      </div>
+    );
+  }
+
+    // ════════════════════════════════════════════════════════════════════════════
   // RENDER — STABLEFORD SCORING (NEW — only for stableford_b3of4 format)
   // ════════════════════════════════════════════════════════════════════════════
   if (page === "scoring" && team && isStableford) {
@@ -1367,7 +1894,7 @@ export default function WRightScore() {
 
       {/* Tabs — 5 for stableford, 3 for scramble */}
       <div style={{ display:"flex", gap:6, padding:"10px 12px 6px", background:C.white, borderBottom:`1px solid ${C.border}`, flexShrink:0, overflowX:"auto" }}>
-        {isStableford ? <>
+        {(isStableford || isChampagne) ? <>
           <button style={tPill(lbTab==="teams")} onClick={() => setLbTab("teams")}>🏆 Teams</button>
           <button style={tPill(lbTab==="nett")} onClick={() => setLbTab("nett")}>👤 Nett</button>
           <button style={tPill(lbTab==="gross")} onClick={() => setLbTab("gross")}>⛳ Gross</button>
@@ -1540,8 +2067,160 @@ export default function WRightScore() {
           </div>
         </>}
 
+        {/* ── CHAMPAGNE SCRAMBLE — TEAMS ── */}
+        {isChampagne && lbTab === "teams" && champagneBoards && <>
+          <div style={card}>
+            <div style={{ background: C.navy, padding: "10px 14px" }}>
+              <div style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>🥂 TEAMS</div>
+              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>100% Course HCP · best 2 of 4 on par-4/5 · best 3 of 4 on par-3</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 60px 60px", gap: 4, padding: "8px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+              {["","Team","Holes","Pts"].map((h,i) => (
+                <div key={i} style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: i > 1 ? "center" : "left" }}>{h}</div>
+              ))}
+            </div>
+            {champagneBoards.teams.length === 0 ? (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: C.muted }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🥂</div>
+                <div style={{ fontSize: 13 }}>No scores yet</div>
+              </div>
+            ) : champagneBoards.teams.map((t, i) => {
+              const isMine = t.id === team?.id;
+              return (
+                <div key={t.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr 60px 60px", gap: 4, padding: "12px 14px", borderBottom: `1px solid ${C.border}`, background: isMine ? C.navyLt : i === 0 ? "#fffbeb" : C.white, alignItems: "center" }}>
+                  <div style={{ fontWeight: 900, fontSize: i < 3 ? 18 : 14, textAlign: "center" }}>{medal(i)}</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: isMine ? C.navy : C.text }}>{t.name}{isMine ? " ★" : ""}</div>
+                  </div>
+                  <div style={{ textAlign: "center", fontSize: 12, color: C.muted, fontWeight: 700 }}>{t.holesScored}/18</div>
+                  <div style={{ textAlign: "center", fontWeight: 900, fontSize: 18, color: C.green }}>{t.holesScored > 0 ? t.total : "–"}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={card}>
+            <div style={{ padding: "14px 16px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8, letterSpacing: 0.3 }}>📐 Champagne Scramble — how it works</div>
+              <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.7 }}>
+                <div>• Everyone tees off, the team picks the best drive, then each player plays their own ball from there to the hole.</div>
+                <div>• Every player must contribute at least <strong style={{ color: C.text }}>3 drives</strong> over 18.</div>
+                <div>• Each player's gross score → individual stableford points using <strong style={{ color: C.text }}>their own tee</strong> at <strong style={{ color: C.text }}>100% Course HCP</strong>.</div>
+                <div style={{ marginTop: 6 }}><strong style={{ color: C.text }}>Team total per hole:</strong></div>
+                <div>&nbsp;&nbsp;– Par 3 → best <strong style={{ color: C.text }}>3 of 4</strong> stableford scores</div>
+                <div>&nbsp;&nbsp;– Par 4 / Par 5 → best <strong style={{ color: C.text }}>2 of 4</strong> stableford scores</div>
+                <div style={{ marginTop: 6 }}><strong style={{ color: C.text }}>Course Handicap</strong> = round(HCP Index × Slope ÷ 113 + (CR − Par))</div>
+                <div><strong style={{ color: C.text }}>Stableford points</strong>: Eagle+ = 4 · Birdie = 3 · Par = 2 · Bogey = 1 · Double+ = 0</div>
+                <div style={{ marginTop: 8, padding: "8px 10px", background: C.navyLt, borderRadius: 8, fontSize: 10.5, color: C.text }}>
+                  <strong>Mixed tees:</strong> each player's stableford is calculated using their own par/SI/CR/slope. The best-2 vs best-3 rule for the team comes from the comp's primary tee.
+                </div>
+                {Object.keys(compCoursesMap).length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: C.text, marginBottom: 4 }}>Tees in play:</div>
+                    {Object.values(compCoursesMap).map(c => (
+                      <div key={c.id} style={{ fontSize: 10, color: C.muted }}>
+                        • <strong style={{ color: C.text }}>{c.name}</strong> — Par {c.par} · CR {c.rating} · Slope {c.slope}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>}
+
+        {/* ── CHAMPAGNE SCRAMBLE — PLAYER NETT ── */}
+        {isChampagne && lbTab === "nett" && champagneBoards && <>
+          <div style={card}>
+            <div style={{ background: C.navyDk, padding: "10px 14px" }}>
+              <div style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>👤 Player Nett</div>
+              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>100% Course Handicap · individual stableford from the chosen drive</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 50px 50px 50px", gap: 4, padding: "8px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+              {["","Player","Play","Holes","Pts"].map((h,i) => (
+                <div key={i} style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: i > 1 ? "center" : "left" }}>{h}</div>
+              ))}
+            </div>
+            {champagneBoards.nett.length === 0 ? (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: C.muted, fontSize: 13 }}>No scores yet</div>
+            ) : champagneBoards.nett.map((p, i) => {
+              const isMine = p.teamId === team?.id;
+              const teeLabel = (p.courseName || "").match(/\(([^)]+)\)/)?.[1] || null;
+              return (
+                <div key={`${p.teamId}-${p.slot}`} style={{ display: "grid", gridTemplateColumns: "32px 1fr 50px 50px 50px", gap: 4, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: isMine ? C.navyLt : C.white, alignItems: "center" }}>
+                  <div style={{ fontWeight: 900, fontSize: i < 3 ? 16 : 13, textAlign: "center" }}>{medal(i)}</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.name}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                      <span>{p.teamName}</span>
+                      {teeLabel && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:6, background:C.navyLt, color:C.navy }}>{teeLabel}</span>}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: C.text }}>{p.phpNett}</div>
+                  <div style={{ textAlign: "center", fontSize: 12, color: C.muted, fontWeight: 700 }}>{p.played}/18</div>
+                  <div style={{ textAlign: "center", fontWeight: 900, fontSize: 16, color: C.green }}>{p.pNett}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={card}>
+            <div style={{ padding: "14px 16px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>📐 Player Nett — individual stableford</div>
+              <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.7 }}>
+                <div>Each player's gross from the chosen drive is converted to stableford points at <strong style={{ color: C.text }}>100% Course Handicap</strong>. Top performer wins the individual nett prize regardless of which team they're on.</div>
+                <div style={{ marginTop: 8, padding: "8px 10px", background: C.navyLt, borderRadius: 8, fontSize: 10.5, color: C.text }}>
+                  <strong>Mixed tees:</strong> stableford for each player uses their own par/SI/CR/slope.
+                </div>
+              </div>
+            </div>
+          </div>
+        </>}
+
+        {/* ── CHAMPAGNE SCRAMBLE — PLAYER GROSS ── */}
+        {isChampagne && lbTab === "gross" && champagneBoards && <>
+          <div style={card}>
+            <div style={{ background: C.navyDk, padding: "10px 14px" }}>
+              <div style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>⛳ Player Gross</div>
+              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>Scratch · no handicap strokes</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 50px 50px 50px", gap: 4, padding: "8px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+              {["","Player","Idx","Holes","Pts"].map((h,i) => (
+                <div key={i} style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: i > 1 ? "center" : "left" }}>{h}</div>
+              ))}
+            </div>
+            {champagneBoards.gross.length === 0 ? (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: C.muted, fontSize: 13 }}>No scores yet</div>
+            ) : champagneBoards.gross.map((p, i) => {
+              const isMine = p.teamId === team?.id;
+              const teeLabel = (p.courseName || "").match(/\(([^)]+)\)/)?.[1] || null;
+              return (
+                <div key={`${p.teamId}-${p.slot}`} style={{ display: "grid", gridTemplateColumns: "32px 1fr 50px 50px 50px", gap: 4, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: isMine ? C.navyLt : C.white, alignItems: "center" }}>
+                  <div style={{ fontWeight: 900, fontSize: i < 3 ? 16 : 13, textAlign: "center" }}>{medal(i)}</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.name}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                      <span>{p.teamName}</span>
+                      {teeLabel && <span style={{ fontSize:9, fontWeight:700, padding:"1px 5px", borderRadius:6, background:C.navyLt, color:C.navy }}>{teeLabel}</span>}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: C.text }}>{p.idx}</div>
+                  <div style={{ textAlign: "center", fontSize: 12, color: C.muted, fontWeight: 700 }}>{p.played}/18</div>
+                  <div style={{ textAlign: "center", fontWeight: 900, fontSize: 16, color: C.green }}>{p.pGross}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={card}>
+            <div style={{ padding: "14px 16px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>📐 Player Gross — scratch leaderboard</div>
+              <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.7 }}>
+                No handicap strokes applied. Stableford against par directly: Eagle+ = 4 · Birdie = 3 · Par = 2 · Bogey = 1 · Double+ = 0.
+              </div>
+            </div>
+          </div>
+        </>}
+
         {/* ── SCRAMBLE TEAMS (unchanged) ── */}
-        {!isStableford && lbTab === "teams" && <>
+        {!isStableford && !isChampagne && lbTab === "teams" && <>
           <div style={card}>
             <div style={{ background: C.navy, padding: "10px 14px" }}>
               <div style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>🏆 Team Standings</div>
