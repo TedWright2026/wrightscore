@@ -98,6 +98,7 @@ function playingHcp(idx, course, allow) {
 // Stableford points from gross score, par, and strokes received on this hole
 function stbPts(gross, par, strokes) {
   if (gross == null) return null;
+  if (gross === 0) return 0;   // No Return — player picked up
   const diff = (gross - strokes) - par;
   if (diff <= -2) return 4;
   if (diff === -1) return 3;
@@ -424,7 +425,7 @@ export default function WRightScore() {
   // ─── CHAMPAGNE SCRAMBLE CALCS — current team ─────────────────────────────
   // Format: all 4 tee off, best drive selected, each plays own ball to finish.
   // Each player has a gross score per hole → individual stableford points using
-  // their own course/tee at 100% Course HCP.
+  // their own course/tee at 90% Course HCP (committee allowance).
   // Team total per hole:
   //   • Par 3       → best 3 of 4 stableford scores
   //   • Par 4 / 5   → best 2 of 4 stableford scores
@@ -442,7 +443,7 @@ export default function WRightScore() {
       const idx = parseFloat(p.handicap);
       const pCourse = p.course || activeCourse;
       const cHcp = courseHandicap(idx, pCourse);
-      const phpNett = playingHcp(idx, pCourse, 1.0);
+      const phpNett = playingHcp(idx, pCourse, 0.9);
       let points = 0, played = 0;
       (pCourse.holes || []).forEach((h, hIdx) => {
         const sc = scoresByPlayer[slot]?.[hIdx];
@@ -566,7 +567,7 @@ export default function WRightScore() {
         const idx = parseFloat(p.handicap);
         const pCourse = p.course || activeCourse;
         const cHcp = courseHandicap(idx, pCourse);
-        const phpNett = playingHcp(idx, pCourse, 1.0);
+        const phpNett = playingHcp(idx, pCourse, 0.9);
 
         let pNett = 0, pGross = 0, played = 0;
         (pCourse.holes || []).forEach((h, hIdx) => {
@@ -597,12 +598,15 @@ export default function WRightScore() {
       const tp = playerRows.filter(p => p.teamId === t.id);
       const teamPlayerCourses = (t.players || []).slice(0, 4).map(pl => pl?.course || activeCourse);
       let total = 0, holesScored = 0;
+      // GROSS STROKES — sum of best-N raw strokes per hole (best = lowest)
+      // Per committee request: TEAMS leaderboard ranks by raw gross strokes, no handicap.
+      let grossStrokes = 0, grossHolesScored = 0;
       for (let hIdx = 0; hIdx < 18; hIdx++) {
         const teamPar = activeCourse.holes[hIdx]?.par;
         if (!teamPar) continue;
         const bestN = teamPar === 3 ? 3 : 2;
 
-        const pts = tp.map(p => {
+        const perPlayerHole = tp.map(p => {
           let sc = null;
           if (t.id === team?.id) {
             sc = scoresByPlayer[p.slot]?.[hIdx];
@@ -614,17 +618,34 @@ export default function WRightScore() {
           const pCourse = teamPlayerCourses[p.slot];
           const h = pCourse?.holes?.[hIdx];
           if (!h) return null;
-          return stbPts(sc, h.par, strokesOnHole(p.phpNett, h.si));
+          return {
+            stbNett: stbPts(sc, h.par, strokesOnHole(p.phpNett, h.si)),
+            rawStrokes: sc > 0 ? sc : null,  // NR (sc===0) excluded from gross
+          };
         }).filter(x => x !== null);
 
-        if (pts.length > 0) {
+        const ptsNett = perPlayerHole.map(x => x.stbNett).filter(x => x !== null);
+        if (ptsNett.length > 0) {
           holesScored++;
-          const topN = [...pts].sort((a,b) => b-a).slice(0, bestN);
+          const topN = [...ptsNett].sort((a,b) => b-a).slice(0, bestN);
           total += topN.reduce((s,x) => s+x, 0);
         }
+
+        const strokes = perPlayerHole.map(x => x.rawStrokes).filter(x => x !== null);
+        if (strokes.length > 0) {
+          grossHolesScored++;
+          const bottomN = [...strokes].sort((a,b) => a-b).slice(0, Math.min(bestN, strokes.length));
+          grossStrokes += bottomN.reduce((s,x) => s+x, 0);
+        }
       }
-      return { ...t, total, holesScored, playerCount: tp.length };
-    }).sort((a,b) => b.total - a.total);
+      return { ...t, total, holesScored, grossStrokes, grossHolesScored, playerCount: tp.length };
+    }).sort((a,b) => {
+      // Sort by GROSS strokes ASCENDING (lowest first). Teams who haven't played sink to the bottom.
+      const aPlayed = a.grossHolesScored > 0 ? 1 : 0;
+      const bPlayed = b.grossHolesScored > 0 ? 1 : 0;
+      if (aPlayed !== bPlayed) return bPlayed - aPlayed;
+      return a.grossStrokes - b.grossStrokes;
+    });
 
     const nett  = [...playerRows].filter(p => p.played > 0).sort((a,b) => b.pNett  - a.pNett);
     const gross = [...playerRows].filter(p => p.played > 0).sort((a,b) => b.pGross - a.pGross);
@@ -1007,7 +1028,7 @@ export default function WRightScore() {
       const idx = parseFloat(p.handicap);
       const pCourse  = p.course || activeCourse;
       const pHole    = pCourse.holes[currentH] || { par: 4, si: 9 };
-      const phpNett  = playingHcp(idx, pCourse, 1.0);
+      const phpNett  = playingHcp(idx, pCourse, 0.9);
       const cHcp     = courseHandicap(idx, pCourse);
       const strokes  = strokesOnHole(phpNett, pHole.si);
       const sc       = scoresByPlayer[slot]?.[currentH];
@@ -1255,14 +1276,22 @@ export default function WRightScore() {
                     <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2 }}>
                       {(() => {
                         const lo = Math.max(1, r.par - 3);
-                        const vals = [];
+                        const vals = [0];  // 0 = No Return (picked up)
                         for (let v = lo; v <= 10; v++) vals.push(v);
                         return vals.map(val => {
                           const selected = r.sc === val;
+                          const isNR = val === 0;
                           return (
                             <button key={val} onClick={() => setChampagneScore(currentH, r.slot, String(val))}
-                              style={{ flex: "1 0 38px", minWidth: 38, height: 42, borderRadius: 8, border: `2px solid ${selected ? C.navy : C.border}`, background: selected ? C.navy : C.white, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: selected ? C.white : C.text, transition: "all 0.1s" }}>
-                              {val}
+                              title={isNR ? "No Return — picked up" : ""}
+                              style={{
+                                flex: "1 0 38px", minWidth: 38, height: 42, borderRadius: 8,
+                                border: `2px solid ${selected ? (isNR ? C.amber : C.navy) : C.border}`,
+                                background: selected ? (isNR ? C.amber : C.navy) : (isNR ? C.amberLt : C.white),
+                                cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 800,
+                                color: selected ? C.white : (isNR ? C.amber : C.text), transition: "all 0.1s"
+                              }}>
+                              {isNR ? "—" : val}
                             </button>
                           );
                         });
@@ -1516,14 +1545,22 @@ export default function WRightScore() {
                     <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2 }}>
                       {(() => {
                         const lo = Math.max(1, r.par - 3);
-                        const vals = [];
+                        const vals = [0];  // 0 = No Return (picked up)
                         for (let v = lo; v <= 10; v++) vals.push(v);
                         return vals.map(val => {
                           const selected = r.sc === val;
+                          const isNR = val === 0;
                           return (
                             <button key={val} onClick={() => setStablefordScore(currentH, r.slot, String(val))}
-                              style={{ flex: "1 0 38px", minWidth: 38, height: 42, borderRadius: 8, border: `2px solid ${selected ? C.navy : C.border}`, background: selected ? C.navy : C.white, cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: selected ? C.white : C.text, transition: "all 0.1s" }}>
-                              {val}
+                              title={isNR ? "No Return — picked up" : ""}
+                              style={{
+                                flex: "1 0 38px", minWidth: 38, height: 42, borderRadius: 8,
+                                border: `2px solid ${selected ? (isNR ? C.amber : C.navy) : C.border}`,
+                                background: selected ? (isNR ? C.amber : C.navy) : (isNR ? C.amberLt : C.white),
+                                cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 800,
+                                color: selected ? C.white : (isNR ? C.amber : C.text), transition: "all 0.1s"
+                              }}>
+                              {isNR ? "—" : val}
                             </button>
                           );
                         });
@@ -2067,33 +2104,46 @@ export default function WRightScore() {
           </div>
         </>}
 
-        {/* ── CHAMPAGNE SCRAMBLE — TEAMS ── */}
+        {/* ── CHAMPAGNE SCRAMBLE — TEAMS (GROSS strokes) ── */}
         {isChampagne && lbTab === "teams" && champagneBoards && <>
+          <div style={{
+            background: "#fef3c7", border: "2px solid #d97706", borderRadius: 12,
+            padding: "10px 14px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start"
+          }}>
+            <div style={{ fontSize: 22, flexShrink: 0 }}>⚠️</div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: "#78350f", marginBottom: 2 }}>GROSS scores — handicap NOT applied</div>
+              <div style={{ fontSize: 11.5, color: "#92400e", lineHeight: 1.4 }}>
+                Team total = sum of best-N <strong>raw strokes</strong> per hole. Best 2 on par-4/5, best 3 on par-3. <strong>Lower is better.</strong> For handicap-adjusted standings see Player Nett or the admin board.
+              </div>
+            </div>
+          </div>
           <div style={card}>
             <div style={{ background: C.navy, padding: "10px 14px" }}>
-              <div style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>🥂 TEAMS</div>
-              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>100% Course HCP · best 2 of 4 on par-4/5 · best 3 of 4 on par-3</div>
+              <div style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>🥂 TEAMS — Gross</div>
+              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>Raw strokes · no handicap · best 2 par-4/5 · best 3 par-3 · lower wins</div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 60px 60px", gap: 4, padding: "8px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
-              {["","Team","Holes","Pts"].map((h,i) => (
+            <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 60px 70px", gap: 4, padding: "8px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+              {["","Team","Holes","Gross"].map((h,i) => (
                 <div key={i} style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: i > 1 ? "center" : "left" }}>{h}</div>
               ))}
             </div>
-            {champagneBoards.teams.length === 0 ? (
+            {champagneBoards.teams.length === 0 || champagneBoards.teams.every(t => t.grossHolesScored === 0) ? (
               <div style={{ padding: "40px 20px", textAlign: "center", color: C.muted }}>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>🥂</div>
                 <div style={{ fontSize: 13 }}>No scores yet</div>
               </div>
             ) : champagneBoards.teams.map((t, i) => {
               const isMine = t.id === team?.id;
+              const played = t.grossHolesScored > 0;
               return (
-                <div key={t.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr 60px 60px", gap: 4, padding: "12px 14px", borderBottom: `1px solid ${C.border}`, background: isMine ? C.navyLt : i === 0 ? "#fffbeb" : C.white, alignItems: "center" }}>
-                  <div style={{ fontWeight: 900, fontSize: i < 3 ? 18 : 14, textAlign: "center" }}>{medal(i)}</div>
+                <div key={t.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr 60px 70px", gap: 4, padding: "12px 14px", borderBottom: `1px solid ${C.border}`, background: isMine ? C.navyLt : (i === 0 && played) ? "#fffbeb" : C.white, alignItems: "center" }}>
+                  <div style={{ fontWeight: 900, fontSize: (played && i < 3) ? 18 : 14, textAlign: "center" }}>{played ? medal(i) : "–"}</div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: isMine ? C.navy : C.text }}>{t.name}{isMine ? " ★" : ""}</div>
                   </div>
-                  <div style={{ textAlign: "center", fontSize: 12, color: C.muted, fontWeight: 700 }}>{t.holesScored}/18</div>
-                  <div style={{ textAlign: "center", fontWeight: 900, fontSize: 18, color: C.green }}>{t.holesScored > 0 ? t.total : "–"}</div>
+                  <div style={{ textAlign: "center", fontSize: 12, color: C.muted, fontWeight: 700 }}>{t.grossHolesScored}/18</div>
+                  <div style={{ textAlign: "center", fontWeight: 900, fontSize: 18, color: played ? C.navy : C.muted }}>{played ? t.grossStrokes : "–"}</div>
                 </div>
               );
             })}
@@ -2104,12 +2154,11 @@ export default function WRightScore() {
               <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.7 }}>
                 <div>• Everyone tees off, the team picks the best drive, then each player plays their own ball from there to the hole.</div>
                 <div>• Every player must contribute at least <strong style={{ color: C.text }}>3 drives</strong> over 18.</div>
-                <div>• Each player's gross score → individual stableford points using <strong style={{ color: C.text }}>their own tee</strong> at <strong style={{ color: C.text }}>100% Course HCP</strong>.</div>
-                <div style={{ marginTop: 6 }}><strong style={{ color: C.text }}>Team total per hole:</strong></div>
-                <div>&nbsp;&nbsp;– Par 3 → best <strong style={{ color: C.text }}>3 of 4</strong> stableford scores</div>
-                <div>&nbsp;&nbsp;– Par 4 / Par 5 → best <strong style={{ color: C.text }}>2 of 4</strong> stableford scores</div>
+                <div>• Tap <strong style={{ color: C.text }}>—</strong> if a player picked up (No Return) — counts as 0 stableford points.</div>
+                <div style={{ marginTop: 6 }}><strong style={{ color: C.text }}>TEAMS leaderboard (this view)</strong>: GROSS raw strokes only — no handicap. Best 2 of 4 par-4/5, best 3 of 4 par-3. <em>Lower is better.</em></div>
+                <div style={{ marginTop: 6 }}><strong style={{ color: C.text }}>Player Nett / Player Gross</strong>: stableford points per player at their own tee. Nett uses 90% Course HCP.</div>
                 <div style={{ marginTop: 6 }}><strong style={{ color: C.text }}>Course Handicap</strong> = round(HCP Index × Slope ÷ 113 + (CR − Par))</div>
-                <div><strong style={{ color: C.text }}>Stableford points</strong>: Eagle+ = 4 · Birdie = 3 · Par = 2 · Bogey = 1 · Double+ = 0</div>
+                <div><strong style={{ color: C.text }}>Stableford points</strong>: Eagle+ = 4 · Birdie = 3 · Par = 2 · Bogey = 1 · Double+ or NR = 0</div>
                 <div style={{ marginTop: 8, padding: "8px 10px", background: C.navyLt, borderRadius: 8, fontSize: 10.5, color: C.text }}>
                   <strong>Mixed tees:</strong> each player's stableford is calculated using their own par/SI/CR/slope. The best-2 vs best-3 rule for the team comes from the comp's primary tee.
                 </div>
@@ -2133,7 +2182,7 @@ export default function WRightScore() {
           <div style={card}>
             <div style={{ background: C.navyDk, padding: "10px 14px" }}>
               <div style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>👤 Player Nett</div>
-              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>100% Course Handicap · individual stableford from the chosen drive</div>
+              <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>90% Course Handicap · individual stableford from the chosen drive</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 50px 50px 50px", gap: 4, padding: "8px 14px", background: C.bg, borderBottom: `1px solid ${C.border}` }}>
               {["","Player","Play","Holes","Pts"].map((h,i) => (
@@ -2166,7 +2215,7 @@ export default function WRightScore() {
             <div style={{ padding: "14px 16px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>📐 Player Nett — individual stableford</div>
               <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.7 }}>
-                <div>Each player's gross from the chosen drive is converted to stableford points at <strong style={{ color: C.text }}>100% Course Handicap</strong>. Top performer wins the individual nett prize regardless of which team they're on.</div>
+                <div>Each player's gross from the chosen drive is converted to stableford points at <strong style={{ color: C.text }}>90% Course Handicap</strong>. Top performer wins the individual nett prize regardless of which team they're on.</div>
                 <div style={{ marginTop: 8, padding: "8px 10px", background: C.navyLt, borderRadius: 8, fontSize: 10.5, color: C.text }}>
                   <strong>Mixed tees:</strong> stableford for each player uses their own par/SI/CR/slope.
                 </div>
